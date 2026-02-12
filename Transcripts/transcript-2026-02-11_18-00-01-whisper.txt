@@ -1,0 +1,4 @@
+timestamp: 2026-02-11T17:00:01Z
+backend: WhisperKit
+
+I'm talking to you in English. I'm missing your copy.

@@ -1,0 +1,35 @@
+name: Oto
+options:
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    from: 0.15.0
+targets:
+  Oto:
+    type: application
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Oto
+        excludes:
+          - Resources/WhisperModels/**/.cache/**
+          - Resources/WhisperModels/openai/whisper-base/config.json
+          - Resources/WhisperModels/openai/whisper-base/tokenizer_config.json
+    dependencies:
+      - package: WhisperKit
+        product: WhisperKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.remi.oto
+        INFOPLIST_FILE: Oto/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: 5.0
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    scheme:
+      testTargets: []

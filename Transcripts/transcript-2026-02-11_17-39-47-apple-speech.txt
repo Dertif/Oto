@@ -1,0 +1,4 @@
+timestamp: 2026-02-11T16:39:47Z
+backend: Apple Speech
+
+1234 hello there how are you all good? How are you
