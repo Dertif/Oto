@@ -6,3 +6,9 @@ DerivedData/
 build/
 *.xcuserstate
 xcuserdata/
+
+# Local transcript outputs
+Transcripts/*.txt
+
+# Local Linear export/import artifacts
+docs/linear-*.csv
