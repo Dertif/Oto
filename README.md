@@ -126,12 +126,16 @@ Recommended flow:
 
 Icons are configured in `Oto/Assets.xcassets`:
 - `AppIcon.appiconset`: app icon
-- `MenuBarIcon.imageset`: default menu bar icon
-- `MenuBarIconActive.imageset`: menu bar icon while recording
+- `MenuBarIcon.imageset`: default menu bar icon (also used for recording pulse)
+- `MenuBarIconProcessing.imageset`: processing state icon
 
 The app is configured to use `AppIcon` via `ASSETCATALOG_COMPILER_APPICON_NAME` in `project.yml`.
 
 If a custom menu bar icon is missing, the app falls back to SF Symbols.
+
+Recording animation note:
+- The menu bar icon uses AppKit (`NSStatusItem`) and applies a runtime breathing opacity animation while recording.
+- Internal debug speed override is available with `OTO_DEBUG_RECORDING_ANIMATION_SPEED_MULTIPLIER` (for example `1.5`).
 
 ## WhisperKit Models (Bundled)
 

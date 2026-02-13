@@ -14,6 +14,22 @@ struct MenuContentView: View {
                 }
             }
             .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing)
+
+            Picker("Hotkey Mode", selection: $state.hotkeyMode) {
+                ForEach(HotkeyTriggerMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Hotkey: Fn/Globe")
+                    .font(.caption)
+                Text(state.hotkeyGuidanceMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Microphone: \(state.microphoneStatusLabel)")

@@ -10,12 +10,27 @@ final class AppState: ObservableObject {
             refreshWhisperModelStatus()
         }
     }
+    @Published var hotkeyMode: HotkeyTriggerMode = .hold {
+        didSet {
+            hotkeyInterpreter.reset(for: hotkeyMode)
+        }
+    }
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
-    @Published var isRecording = false
-    @Published var isProcessing = false
+    @Published var isRecording = false {
+        didSet {
+            updateVisualState()
+        }
+    }
+    @Published var isProcessing = false {
+        didSet {
+            updateVisualState()
+        }
+    }
+    @Published var visualState: RecorderVisualState = .idle
     @Published var transcript = ""
     @Published var statusMessage = "Ready"
+    @Published var hotkeyGuidanceMessage = "If Fn does not trigger, disable conflicting macOS Fn shortcuts and allow Input Monitoring."
     @Published var whisperModelStatusLabel = WhisperModelStatus.missing.rawValue
     @Published var lastSavedTranscriptURL: URL?
 
@@ -23,10 +38,19 @@ final class AppState: ObservableObject {
     private let appleTranscriber = AppleSpeechTranscriber()
     private let whisperTranscriber = WhisperKitTranscriber()
     private let audioRecorder = AudioFileRecorder()
+    private let hotkeyService = GlobalHotkeyService()
+    private let hotkeyInterpreter = FnHotkeyInterpreter()
+    private var activeRecordingBackend: STTBackend?
 
     init() {
         refreshPermissionStatus()
         refreshWhisperModelStatus()
+        hotkeyInterpreter.reset(for: hotkeyMode)
+        startHotkeyMonitoring()
+    }
+
+    deinit {
+        hotkeyService.stop()
     }
 
     func refreshPermissionStatus() {
@@ -57,6 +81,10 @@ final class AppState: ObservableObject {
     }
 
     func startRecording() {
+        guard !isProcessing else {
+            return
+        }
+
         refreshPermissionStatus()
         refreshWhisperModelStatus()
 
@@ -67,8 +95,11 @@ final class AppState: ObservableObject {
 
         transcript = ""
 
-        switch selectedBackend {
+        let backendToStart = selectedBackend
+
+        switch backendToStart {
         case .appleSpeech:
+            activeRecordingBackend = .appleSpeech
             statusMessage = "Listening with Apple Speech..."
             Task {
                 do {
@@ -86,6 +117,7 @@ final class AppState: ObservableObject {
                     )
                     isRecording = true
                 } catch {
+                    activeRecordingBackend = nil
                     statusMessage = "Unable to start: \(error.localizedDescription)"
                     isRecording = false
                     refreshPermissionStatus()
@@ -95,9 +127,11 @@ final class AppState: ObservableObject {
         case .whisper:
             do {
                 _ = try audioRecorder.startRecording()
+                activeRecordingBackend = .whisper
                 statusMessage = "Recording with WhisperKit..."
                 isRecording = true
             } catch {
+                activeRecordingBackend = nil
                 statusMessage = "Unable to start Whisper recording: \(error.localizedDescription)"
                 isRecording = false
             }
@@ -105,9 +139,16 @@ final class AppState: ObservableObject {
     }
 
     func stopRecording() {
-        switch selectedBackend {
+        guard !isProcessing else {
+            return
+        }
+
+        let backendToStop = activeRecordingBackend ?? selectedBackend
+
+        switch backendToStop {
         case .appleSpeech:
             appleTranscriber.stop()
+            activeRecordingBackend = nil
             isRecording = false
             statusMessage = "Stopped"
             saveTranscript(text: transcript, backend: .appleSpeech)
@@ -115,9 +156,11 @@ final class AppState: ObservableObject {
         case .whisper:
             isRecording = false
             guard let audioURL = audioRecorder.stopRecording() else {
+                activeRecordingBackend = nil
                 statusMessage = "No Whisper recording was found."
                 return
             }
+            activeRecordingBackend = nil
 
             statusMessage = "Transcribing with WhisperKit..."
             isProcessing = true
@@ -155,6 +198,68 @@ final class AppState: ObservableObject {
 
     func refreshWhisperModelStatus() {
         whisperModelStatusLabel = whisperTranscriber.refreshModelStatus().rawValue
+    }
+
+    func handleFnDown() {
+        if !isRecording {
+            startRecording()
+        }
+    }
+
+    func handleFnUp() {
+        if isRecording {
+            stopRecording()
+        }
+    }
+
+    private func handleFnToggle() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startHotkeyMonitoring() {
+        hotkeyService.start { [weak self] event in
+            Task { @MainActor in
+                self?.handleFnHotkeyEvent(event)
+            }
+        }
+    }
+
+    private func handleFnHotkeyEvent(_ event: FnHotkeyEvent) {
+        let intent = hotkeyInterpreter.interpret(
+            isFnPressed: event.isFnPressed,
+            mode: hotkeyMode,
+            timestamp: event.timestamp,
+            isProcessing: isProcessing
+        )
+
+        guard let intent else {
+            return
+        }
+
+        switch intent {
+        case .start:
+            handleFnDown()
+        case .stop:
+            handleFnUp()
+        case .toggle:
+            handleFnToggle()
+        }
+    }
+
+    private func updateVisualState() {
+        if isProcessing {
+            visualState = .processing
+            return
+        }
+        if isRecording {
+            visualState = .recording
+            return
+        }
+        visualState = .idle
     }
 
     var microphoneStatusLabel: String {

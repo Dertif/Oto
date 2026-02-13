@@ -7,9 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1875F2A87EA9A06682F2FE5E /* FnHotkeyInterpreterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBAE7D8C72A54E8641ACB779 /* FnHotkeyInterpreterTests.swift */; };
 		25840DF77FDF4665A07B3C16 /* AudioEncoder.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = 2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */; };
 		35E01C16708C556528014B4B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7845E21AF6D9514BD7E2F9C9 /* AppState.swift */; };
+		3684C0788B23EFBE7C48346E /* RecorderVisualState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E995F012EDBFAD036A08391C /* RecorderVisualState.swift */; };
 		5FF92D94ED9ACFBD5FD1626E /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = 35BE87DA37F36171C1D48F9C /* tokenizer.json */; };
+		67FCC16DF418B363C2F355A4 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */; };
 		885C76F54EB7D2BB2F0B68E0 /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = 82248A88E3E75F26B464E92B /* config.json */; };
 		99F65CEFFCF3B09840EB120F /* AppleSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */; };
 		9DF4F353A36A8E9BAA2960C9 /* AudioFileRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */; };
@@ -20,17 +23,30 @@
 		C5231A076A26045208F43689 /* MenuContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94830C5F09064F718DDC7A40 /* MenuContentView.swift */; };
 		CF71787BFFE35B678D0B7B44 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E86457BBB8DA2FF8E14176BC /* Assets.xcassets */; };
 		D39D1238B4241DDFF6B71AC6 /* MelSpectrogram.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = 9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */; };
+		D75A91E8EA9720254CF88D25 /* FnHotkeyInterpreter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38B9950FE5EDCF61B9B86D43 /* FnHotkeyInterpreter.swift */; };
 		E3D6325196FAB1579E43D706 /* TranscriptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1DEA11D03AD97E547360FA /* TranscriptStore.swift */; };
 		EE1EF0388047890E13DCDF51 /* OtoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64008F83175E820C70232B03 /* OtoApp.swift */; };
 		EE27AA2BA243E0AFC462FC5D /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 1115AEEADAA9FF724B1F6043 /* WhisperKit */; };
 		EF7005588CC8D83C35C525BB /* WhisperKitTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700D5647F8FF370FAAE1DBD /* WhisperKitTranscriber.swift */; };
+		FAC04CFA9F99EBB0ABE096FF /* HotkeyTriggerMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		74073231E70CA96FB650F7B8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EEFB248B9FE4E0F502D92FAB /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0E81D2D0F664538CA08C5FD;
+			remoteInfo = Oto;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		107B208E59B7C941B87E621D /* Oto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Oto.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */ = {isa = PBXFileReference; path = AudioEncoder.mlmodelc; sourceTree = "<group>"; };
 		2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechTranscriber.swift; sourceTree = "<group>"; };
 		35BE87DA37F36171C1D48F9C /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
+		38B9950FE5EDCF61B9B86D43 /* FnHotkeyInterpreter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnHotkeyInterpreter.swift; sourceTree = "<group>"; };
 		5CCEA0542CFBF70D32692B3F /* TextDecoder.mlmodelc */ = {isa = PBXFileReference; path = TextDecoder.mlmodelc; sourceTree = "<group>"; };
 		5D1DEA11D03AD97E547360FA /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
 		5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFileRecorder.swift; sourceTree = "<group>"; };
@@ -41,9 +57,14 @@
 		82248A88E3E75F26B464E92B /* config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
 		8700D5647F8FF370FAAE1DBD /* WhisperKitTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitTranscriber.swift; sourceTree = "<group>"; };
 		94830C5F09064F718DDC7A40 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
+		9C8BADE1E0D5316AC9DA3F1A /* OtoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OtoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */ = {isa = PBXFileReference; path = MelSpectrogram.mlmodelc; sourceTree = "<group>"; };
+		A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		AE869401E5E5965A1A6214D7 /* generation_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = generation_config.json; sourceTree = "<group>"; };
+		B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyTriggerMode.swift; sourceTree = "<group>"; };
+		CBAE7D8C72A54E8641ACB779 /* FnHotkeyInterpreterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnHotkeyInterpreterTests.swift; sourceTree = "<group>"; };
 		E86457BBB8DA2FF8E14176BC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		E995F012EDBFAD036A08391C /* RecorderVisualState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderVisualState.swift; sourceTree = "<group>"; };
 		FD7022B6656D84BFDD60D189 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -59,6 +80,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		107034CD9B23040C421FAAAD /* OtoTests */ = {
+			isa = PBXGroup;
+			children = (
+				CBAE7D8C72A54E8641ACB779 /* FnHotkeyInterpreterTests.swift */,
+			);
+			path = OtoTests;
+			sourceTree = "<group>";
+		};
 		36654E64EB35F00CF3FA7EEB /* Oto */ = {
 			isa = PBXGroup;
 			children = (
@@ -106,6 +135,7 @@
 			isa = PBXGroup;
 			children = (
 				36654E64EB35F00CF3FA7EEB /* Oto */,
+				107034CD9B23040C421FAAAD /* OtoTests */,
 				856A8CAFE0C1D09971E0B221 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -140,6 +170,7 @@
 			isa = PBXGroup;
 			children = (
 				107B208E59B7C941B87E621D /* Oto.app */,
+				9C8BADE1E0D5316AC9DA3F1A /* OtoTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -149,6 +180,8 @@
 			children = (
 				2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */,
 				5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */,
+				38B9950FE5EDCF61B9B86D43 /* FnHotkeyInterpreter.swift */,
+				A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */,
 				5D1DEA11D03AD97E547360FA /* TranscriptStore.swift */,
 				8700D5647F8FF370FAAE1DBD /* WhisperKitTranscriber.swift */,
 			);
@@ -158,6 +191,8 @@
 		C9969A96A55173DFE245AD47 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */,
+				E995F012EDBFAD036A08391C /* RecorderVisualState.swift */,
 				774A6CA1F5129C91667D7F0E /* STTBackend.swift */,
 			);
 			path = Model;
@@ -182,6 +217,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		5B309A1BE1C80A162DED1A6A /* OtoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 90F505B75463E9825A91631B /* Build configuration list for PBXNativeTarget "OtoTests" */;
+			buildPhases = (
+				1EDC26F36518A945F7BB5EDC /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				FFF572BFC7E3EF1A3A6696EE /* PBXTargetDependency */,
+			);
+			name = OtoTests;
+			packageProductDependencies = (
+			);
+			productName = OtoTests;
+			productReference = 9C8BADE1E0D5316AC9DA3F1A /* OtoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		E0E81D2D0F664538CA08C5FD /* Oto */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = D0A810A44535676E2CDCD591 /* Build configuration list for PBXNativeTarget "Oto" */;
@@ -229,6 +282,7 @@
 			projectRoot = "";
 			targets = (
 				E0E81D2D0F664538CA08C5FD /* Oto */,
+				5B309A1BE1C80A162DED1A6A /* OtoTests */,
 			);
 		};
 /* End PBXProject section */
@@ -252,6 +306,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1EDC26F36518A945F7BB5EDC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1875F2A87EA9A06682F2FE5E /* FnHotkeyInterpreterTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		71C1A1460F4640B6CB61A78B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -259,8 +321,12 @@
 				35E01C16708C556528014B4B /* AppState.swift in Sources */,
 				99F65CEFFCF3B09840EB120F /* AppleSpeechTranscriber.swift in Sources */,
 				9DF4F353A36A8E9BAA2960C9 /* AudioFileRecorder.swift in Sources */,
+				D75A91E8EA9720254CF88D25 /* FnHotkeyInterpreter.swift in Sources */,
+				67FCC16DF418B363C2F355A4 /* GlobalHotkeyService.swift in Sources */,
+				FAC04CFA9F99EBB0ABE096FF /* HotkeyTriggerMode.swift in Sources */,
 				C5231A076A26045208F43689 /* MenuContentView.swift in Sources */,
 				EE1EF0388047890E13DCDF51 /* OtoApp.swift in Sources */,
+				3684C0788B23EFBE7C48346E /* RecorderVisualState.swift in Sources */,
 				BE7833B200852E5ADCFABAD2 /* STTBackend.swift in Sources */,
 				E3D6325196FAB1579E43D706 /* TranscriptStore.swift in Sources */,
 				EF7005588CC8D83C35C525BB /* WhisperKitTranscriber.swift in Sources */,
@@ -268,6 +334,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		FFF572BFC7E3EF1A3A6696EE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E0E81D2D0F664538CA08C5FD /* Oto */;
+			targetProxy = 74073231E70CA96FB650F7B8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		114538BBC2CF1770DFC46EC4 /* Release */ = {
@@ -290,6 +364,23 @@
 			};
 			name = Release;
 		};
+		51478044B6416BE9F113CC72 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oto.app/Contents/MacOS/Oto";
+			};
+			name = Debug;
+		};
 		89431A822499016931ADC031 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -309,6 +400,23 @@
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
+		};
+		9865CBED18E1CCA86B93FD74 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oto.app/Contents/MacOS/Oto";
+			};
+			name = Release;
 		};
 		DC675E0765B3D29D75A502E1 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -430,6 +538,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		90F505B75463E9825A91631B /* Build configuration list for PBXNativeTarget "OtoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				51478044B6416BE9F113CC72 /* Debug */,
+				9865CBED18E1CCA86B93FD74 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		D0A810A44535676E2CDCD591 /* Build configuration list for PBXNativeTarget "Oto" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
