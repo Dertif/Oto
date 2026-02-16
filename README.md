@@ -2,13 +2,16 @@
 
 Oto is a macOS menu bar app focused on local speech-to-text (STT).
 
-Current Phase 0.1 foundations include:
+Current implemented scope (Phase 0.1 + 0.1.1 + active Phase 0.2 work) includes:
 - Menu bar app entry point
 - Backend switch: Apple Speech / WhisperKit
-- Microphone + speech permission actions
+- Microphone + speech + accessibility permission actions
 - Start/stop recording
 - Fn/Globe hotkey control (Hold + Double Tap)
 - Timestamped transcript file output
+- Reliability flow states: Ready / Listening / Transcribing / Injected / Failed
+- Optional text injection into focused editable target (toggle in menu)
+- Coordinator-driven flow orchestration (state reducer + UI projection)
 
 Phase 0.1.1 adds WhisperKit responsiveness work:
 - WhisperKit live partial transcript updates while recording
@@ -37,6 +40,14 @@ xcodegen --version
 - `Oto/Assets.xcassets`: app and menu bar icons
 - `Oto/Resources/WhisperModels`: bundled Whisper model assets
 - `docs/`: phase docs and architecture notes
+
+## Architecture Snapshot
+
+- `Oto/AppState.swift`: thin UI adapter (intents + projection), not backend orchestration owner.
+- `Oto/Services/RecordingFlowCoordinator.swift`: end-to-end flow orchestration.
+- `Oto/Model/FlowReducer.swift`: deterministic transition logic.
+- `Oto/Model/AppStateProjection.swift`: maps flow snapshot to UI-facing state.
+- `Oto/Services/Protocols/ServiceProtocols.swift`: protocol seams for side-effecting services.
 
 ## First-Time Setup
 
@@ -112,11 +123,12 @@ xcodebuild -project Oto.xcodeproj -scheme Oto -destination 'platform=macOS' test
 
 Short answer: **No, you do not need to run `xcodegen generate` every time you edit a Swift file.**
 
-You only need to regenerate when project structure/settings change in `project.yml`, for example:
+You need to regenerate when project structure/settings change in `project.yml`, for example:
 - adding/removing dependencies (SPM packages)
 - adding new targets/schemes
 - changing build settings, bundle identifiers, deployment target
 - changing source/resource folder declarations
+- adding/removing/moving source/resource/test files when project file sync is needed
 
 You do **not** need regeneration for normal code edits:
 - editing `.swift` files
@@ -126,7 +138,7 @@ Recommended flow:
 
 1. Edit Swift code
 2. Build/run in Xcode (or with `xcodebuild`)
-3. If you changed `project.yml`, run `xcodegen generate` once
+3. If you changed `project.yml` or added/removed/moved project files, run `xcodegen generate` once
 4. Rebuild
 
 ## Icons
@@ -146,7 +158,7 @@ Recording animation note:
 
 ## WhisperKit Models (Bundled)
 
-WhisperKit is integrated as a Swift Package dependency and currently fixed to the `base` model for Phase 0.1.
+WhisperKit is integrated as a Swift Package dependency and currently fixed to the `base` model for this phase.
 
 Expected location for bundled model assets:
 - `Oto/Resources/WhisperModels`
@@ -166,6 +178,10 @@ Debug toggles:
 - `OTO_DISABLE_WHISPER_STREAMING=1`: disable live streaming and use file finalization.
 - `OTO_DISABLE_WHISPER_PREWARM=1`: disable launch prewarm.
 - `OTO_DISABLE_WHISPER_COMPUTE_TUNING=1`: disable explicit compute options.
+- `OTO_DEBUG_LOG_LEVEL=error|info|debug`: controls structured diagnostics verbosity.
+- `OTO_DEBUG_FLOW_TRACE=1`: emits detailed reducer transition traces.
+- `OTO_DEBUG_UI=1`: shows debug diagnostics panel in the menu.
+- `OTO_DISABLE_INVALID_TRANSITION_ASSERT=1`: disables Debug assertion on invalid reducer transitions.
 
 ## Transcripts
 
@@ -174,6 +190,20 @@ Transcripts are saved as timestamped `.txt` files in:
 - `~/Documents/Oto/Transcripts`
 
 Use the menu action **Open Transcripts Folder** from the app UI.
+
+On recoverable failures, Oto also persists a failure-context transcript artifact to keep debugging visibility.
+The app tracks two separate artifacts:
+- primary transcript artifact (`lastPrimaryTranscriptURL`)
+- failure-context artifact (`lastFailureContextURL`)
+- failure-context files use the `failure-context-...` filename prefix for quick scanning
+
+Failure-context artifacts include run metadata for easier debugging:
+- run id
+- backend/phase/last event
+- permission snapshot
+- hotkey mode + auto-inject setting
+- whisper runtime status
+- frontmost app bundle id
 
 ## Troubleshooting
 
@@ -198,6 +228,21 @@ xcodebuild -project Oto.xcodeproj -scheme Oto -configuration Debug -destination 
 
 Check that valid model assets are actually bundled under `Oto/Resources/WhisperModels` and included in the built app resources.
 
+### Text injection fails
+
+If status shows an injection failure:
+
+1. In Oto menu, click **Request Access**.
+2. In macOS Settings, grant Accessibility permission to Oto.
+3. Retry in an editable text field (for example Notes or a text input in a browser).
+
+Injection behavior notes:
+- Injection is async and non-blocking.
+- Clipboard content is restored after injection when safe.
+- If clipboard changes externally during injection, restore is skipped and Oto keeps a warning-level success outcome.
+- When auto-inject is disabled, Oto saves transcripts without touching clipboard by default.
+- Optional menu toggle `Copy When Auto Inject Off` enables clipboard copy for that mode.
+
 ### Debug-only model auto-download (optional)
 
 If you do not have bundled model files yet, you can temporarily enable model download in Debug:
@@ -211,8 +256,9 @@ Notes:
 
 ## Current Development Status
 
-- Phase 0.1 in progress
-- Apple Speech path works
-- WhisperKit path is integrated and configured for bundled `base` model
-- Model asset packaging/verification should be validated with real model files
+- Phase 0.2 in progress
+- Shared hotkey/menu state machine for recording/transcription is implemented
+- Reliability states and recoverable failure UX are implemented
+- Text injection path is implemented (with explicit failure states)
+- Remaining completion gate is manual end-to-end reliability matrix execution (`docs/phase-0.2.md`)
 - Phase 0.1.1 tracking doc: `docs/phase-0.1.1.md`

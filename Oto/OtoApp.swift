@@ -66,7 +66,12 @@ final class StatusBarController: NSObject {
         configurePopover()
         configureStatusItem()
         observeState()
-        applyIcon(for: state.visualState)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.applyIcon(for: self.state.visualState)
+        }
     }
 
     deinit {
@@ -183,6 +188,8 @@ final class StatusBarController: NSObject {
         let sine = sin((recordingPhase * .pi * 2) - (.pi / 2))
         let normalized = 0.5 + 0.5 * sine
         let pulseOpacity = RecordingAnimation.minOpacity + normalized * (RecordingAnimation.maxOpacity - RecordingAnimation.minOpacity)
-        button.alphaValue = pulseOpacity
+        if abs(button.alphaValue - pulseOpacity) > 0.01 {
+            button.alphaValue = pulseOpacity
+        }
     }
 }

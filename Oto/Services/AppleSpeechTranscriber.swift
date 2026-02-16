@@ -19,6 +19,7 @@ enum AppleSpeechTranscriberError: LocalizedError {
     }
 }
 
+@MainActor
 final class AppleSpeechTranscriber {
     private let recognizer = SFSpeechRecognizer(locale: .current)
     private let audioEngine = AVAudioEngine()
@@ -27,6 +28,9 @@ final class AppleSpeechTranscriber {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var isStopping = false
     private var hasReceivedAnyText = false
+    private var hasFinalResult = false
+    private var latestTranscript = ""
+    private var finalizationWaiter: CheckedContinuation<Void, Never>?
 
     var isRunning: Bool { audioEngine.isRunning }
 
@@ -46,6 +50,9 @@ final class AppleSpeechTranscriber {
         stop()
         isStopping = false
         hasReceivedAnyText = false
+        hasFinalResult = false
+        latestTranscript = ""
+        finalizationWaiter = nil
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -55,21 +62,35 @@ final class AppleSpeechTranscriber {
         recognitionRequest = request
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else {
-                return
-            }
-            if let result {
-                let text = result.bestTranscription.formattedString
-                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    self.hasReceivedAnyText = true
-                }
-                onUpdate(text, result.isFinal)
-            }
-            if let error {
-                if self.shouldSuppress(error: error) {
+            Task { @MainActor [weak self] in
+                guard let self else {
                     return
                 }
-                onError(error.localizedDescription)
+
+                if let result {
+                    let text = result.bestTranscription.formattedString
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.hasReceivedAnyText = true
+                        self.latestTranscript = text
+                    }
+                    if result.isFinal {
+                        self.hasFinalResult = true
+                        self.resumeFinalizationWaiter()
+                    }
+                    onUpdate(text, result.isFinal)
+                }
+
+                if let error {
+                    if self.shouldSuppress(error: error) {
+                        self.resumeFinalizationWaiter()
+                        return
+                    }
+
+                    if self.isStopping {
+                        self.resumeFinalizationWaiter()
+                    }
+                    onError(error.localizedDescription)
+                }
             }
         }
 
@@ -89,14 +110,58 @@ final class AppleSpeechTranscriber {
 
     func stop() {
         isStopping = true
+        hasFinalResult = false
+        finalizationWaiter = nil
+
+        endAudioInput()
+        cleanupRecognition()
+    }
+
+    func stopAndFinalize(timeout: TimeInterval = 0.75) async -> String {
+        isStopping = true
+        endAudioInput()
+
+        if recognitionTask != nil, !hasFinalResult {
+            await waitForFinalResult(timeout: timeout)
+        }
+
+        let finalText = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        cleanupRecognition()
+        return finalText
+    }
+
+    private func endAudioInput() {
         if audioEngine.isRunning {
             audioEngine.stop()
         }
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
+    }
+
+    private func cleanupRecognition() {
         recognitionTask?.cancel()
         recognitionRequest = nil
         recognitionTask = nil
+    }
+
+    private func waitForFinalResult(timeout: TimeInterval) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.finalizationWaiter = continuation
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.resumeFinalizationWaiter()
+                }
+            }
+        }
+    }
+
+    private func resumeFinalizationWaiter() {
+        guard let finalizationWaiter else {
+            return
+        }
+        self.finalizationWaiter = nil
+        finalizationWaiter.resume()
     }
 
     private func shouldSuppress(error: Error) -> Bool {

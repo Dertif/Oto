@@ -96,7 +96,15 @@ final class WhisperKitTranscriber {
     private var hasPrewarmed = false
 
     private(set) var modelStatus: WhisperModelStatus = .missing
-    private(set) var runtimeStatus: WhisperRuntimeStatus = .idle
+    private(set) var runtimeStatus: WhisperRuntimeStatus = .idle {
+        didSet {
+            onRuntimeStatusChange?(runtimeStatus)
+            if runtimeStatus.label != oldValue.label {
+                OtoLogger.log("Runtime status -> \(runtimeStatus.label)", category: .whisper, level: .info)
+            }
+        }
+    }
+    var onRuntimeStatusChange: ((WhisperRuntimeStatus) -> Void)?
 
     var streamingEnabled: Bool {
         !debugOptions.disableStreaming
@@ -108,6 +116,11 @@ final class WhisperKitTranscriber {
 
     init() {
         modelStatus = detectModelStatus()
+        OtoLogger.log(
+            "Whisper transcriber initialized (modelStatus=\(modelStatus.rawValue), streaming=\(streamingEnabled ? "enabled" : "disabled"))",
+            category: .whisper,
+            level: .info
+        )
     }
 
     func prepareForLaunch() async {
@@ -129,6 +142,7 @@ final class WhisperKitTranscriber {
             runtimeStatus = .ready
         } catch {
             runtimeStatus = .error(error.localizedDescription)
+            OtoLogger.log("Prewarm failed: \(error.localizedDescription)", category: .whisper, level: .error)
         }
     }
 
@@ -185,6 +199,7 @@ final class WhisperKitTranscriber {
                 try await streamTranscriber.startStreamTranscription()
             } catch {
                 self.runtimeStatus = .error(error.localizedDescription)
+                OtoLogger.log("Streaming failed: \(error.localizedDescription)", category: .whisper, level: .error)
             }
         }
     }
@@ -217,6 +232,7 @@ final class WhisperKitTranscriber {
 
         if finalText.isEmpty {
             // Fallback for short utterances where stream callbacks never emit text.
+            OtoLogger.log("Streaming final text empty; trying buffered fallback", category: .whisper, level: .info)
             finalText = try await transcribeBufferedAudioSamples(bufferedFallbackAudio)
         }
 
@@ -246,7 +262,7 @@ final class WhisperKitTranscriber {
         let text = results
             .map(\.text)
             .joined(separator: " ")
-        let cleanedText = Self.cleanTranscriptionText(text)
+        let cleanedText = Self.sanitizeTranscriptionText(text)
 
         guard !cleanedText.isEmpty else {
             runtimeStatus = .ready
@@ -538,10 +554,10 @@ final class WhisperKitTranscriber {
     }
 
     private static func normalizedText(from text: String) -> String {
-        cleanTranscriptionText(text)
+        sanitizeTranscriptionText(text)
     }
 
-    private static func cleanTranscriptionText(_ rawText: String) -> String {
+    static func sanitizeTranscriptionText(_ rawText: String) -> String {
         let withoutSpecialTokens = rawText
             .replacingOccurrences(
                 of: "<\\|[^|]+\\|>",
@@ -571,6 +587,6 @@ final class WhisperKitTranscriber {
         let text = results
             .map(\.text)
             .joined(separator: " ")
-        return Self.cleanTranscriptionText(text)
+        return Self.sanitizeTranscriptionText(text)
     }
 }

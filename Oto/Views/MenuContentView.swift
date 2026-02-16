@@ -37,6 +37,9 @@ struct MenuContentView: View {
                 Text("Speech: \(state.speechStatusLabel)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("Accessibility: \(state.accessibilityStatusLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if state.selectedBackend == .whisper {
                     Text("Whisper model: \(state.whisperModelStatusLabel)")
                         .font(.caption)
@@ -55,12 +58,28 @@ struct MenuContentView: View {
                 Button("Request Speech") {
                     state.requestSpeechPermission()
                 }
+
+                Button("Request Access") {
+                    state.requestAccessibilityPermission()
+                }
             }
 
             Button(state.isRecording ? "Stop Recording" : (state.isProcessing ? "Processing..." : "Start Recording")) {
                 state.toggleRecording()
             }
             .disabled(state.isProcessing)
+
+            Toggle("Auto Inject Transcript", isOn: $state.autoInjectEnabled)
+                .font(.caption)
+                .disabled(state.isRecording || state.isProcessing)
+
+            Toggle("Copy When Auto Inject Off", isOn: $state.copyToClipboardWhenAutoInjectDisabled)
+                .font(.caption2)
+                .disabled(state.isRecording || state.isProcessing || state.autoInjectEnabled)
+
+            Text("Flow: \(state.reliabilityState.rawValue)")
+                .font(.caption)
+                .foregroundStyle(reliabilityColor)
 
             if !state.transcriptStableText.isEmpty || !state.transcriptLiveText.isEmpty {
                 transcriptView
@@ -77,10 +96,37 @@ struct MenuContentView: View {
                     .lineLimit(2)
             }
 
-            if let url = state.lastSavedTranscriptURL {
+            if let url = state.lastPrimaryTranscriptURL {
                 Text(url.lastPathComponent)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            if let url = state.lastFailureContextURL {
+                Text("failure-context: \(url.lastPathComponent)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if state.debugPanelEnabled {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Debug")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("Run ID: \(state.debugCurrentRunID)")
+                        .font(.caption2)
+                    Text("Last event: \(state.debugLastEvent)")
+                        .font(.caption2)
+                    Text("Whisper runtime: \(state.whisperRuntimeStatusLabel)")
+                        .font(.caption2)
+                    Text("Flags: \(state.debugConfigurationSummary)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Button("Copy Diagnostics Summary") {
+                        state.copyDebugSummary()
+                    }
+                }
             }
 
             Divider()
@@ -112,5 +158,18 @@ struct MenuContentView: View {
         return renderedText
             .font(.caption)
             .lineLimit(4)
+    }
+
+    private var reliabilityColor: Color {
+        switch state.reliabilityState {
+        case .ready:
+            return .secondary
+        case .listening, .transcribing:
+            return .primary
+        case .injected:
+            return .green
+        case .failed:
+            return .red
+        }
     }
 }
