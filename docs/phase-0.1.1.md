@@ -1,17 +1,15 @@
 # Phase 0.1.1 – WhisperKit Responsiveness and Performance
 
 ## Goal
-Improve WhisperKit user-perceived responsiveness while staying in local STT scope.
-
-This phase addresses two observed gaps:
-- No live/partial transcription while recording (compared to Apple Speech).
-- Slower transcription latency, especially first run and post-stop finalization.
+Improve WhisperKit responsiveness while staying local-first and fully inside STT scope.
 
 ## Scope
 - In scope:
-  - WhisperKit live partial transcription path.
-  - WhisperKit performance tuning (prewarm + compute configuration).
-  - Validation of reliability and latency for both hotkey modes.
+  - WhisperKit live partial transcription during recording.
+  - Launch-time WhisperKit prewarm.
+  - Apple Silicon compute tuning with safe fallback.
+  - Latency instrumentation and reporting.
+  - Light reliability validation across hotkey modes.
 - Out of scope:
   - Wake word
   - Text injection
@@ -19,50 +17,74 @@ This phase addresses two observed gaps:
   - Cloud STT fallback
   - Automatic backend routing
 
-## Requirements
-- Keep current backend switch (Apple Speech / WhisperKit) unchanged.
-- Add WhisperKit live partial text updates while recording.
-- Keep final transcript generation on stop and timestamped file persistence.
-- Keep visual states deterministic (`idle -> recording -> processing -> idle`).
-- Add WhisperKit performance optimizations:
-  - model prewarm to reduce first-run delay
-  - explicit compute options optimized for Apple Silicon
-- Add observability for latency:
-  - time-to-first-partial
-  - stop-to-final-transcript
-  - total transcription duration
+## Linked Linear Work
+- `REM-22` Epic: WhisperKit responsiveness and optimization.
+- `REM-23`: live partial transcript updates.
+- `REM-24`: prewarm and lifecycle.
+- `REM-25`: compute tuning.
+- `REM-26`: latency instrumentation and report.
+- `REM-27`: reliability validation.
 
-## Proposed Optimization Defaults (initial)
-- Model: `base` (unchanged)
-- Prewarm: enabled for WhisperKit path
-- Compute options: use Apple Silicon-optimized CoreML compute units
-  - mel: GPU-capable
-  - audio encoder: Neural Engine preferred when available
-  - text decoder: Neural Engine preferred
-  - prefill: CPU-only (unless profiling indicates a better choice)
+## Implementation Status
+- [x] `REM-23` Live partial UX implemented with hybrid rendering:
+  - confirmed/stable text + lighter live tail while recording.
+- [x] `REM-24` Launch prewarm implemented (`prepareWhisperRuntimeForLaunch`).
+- [x] `REM-25` Compute tuning implemented with fallback:
+  - preferred `ModelComputeOptions` for Apple Silicon.
+  - automatic retry without explicit compute options if preferred config fails.
+- [x] `REM-26` Latency instrumentation implemented:
+  - `TTFP` (time-to-first-partial)
+  - `Stop->Final`
+  - `Total`
+  - surfaced in UI + console.
+- [ ] `REM-27` Manual reliability validation complete and recorded.
+
+## Runtime Defaults
+- Whisper model: fixed `base`.
+- Streaming: enabled by default.
+- Prewarm: enabled on app launch (best effort).
+- Compute tuning: enabled by default, with runtime fallback to default compute behavior.
+
+## Debug Flags
+- `OTO_ALLOW_WHISPER_DOWNLOAD=1`
+  - Debug-only fallback if bundled model files are missing.
+- `OTO_DISABLE_WHISPER_STREAMING=1`
+  - Force file-based Whisper flow (baseline behavior).
+- `OTO_DISABLE_WHISPER_PREWARM=1`
+  - Disable launch prewarm.
+- `OTO_DISABLE_WHISPER_COMPUTE_TUNING=1`
+  - Disable explicit compute options.
+
+## Latency Benchmark Sheet
+Machine: `TODO`  
+Build: `Debug`  
+Model: `base`  
+Prompt sample: `TODO` (keep fixed across runs)
+
+| Metric | Baseline (streaming/prewarm/compute OFF) | Optimized (default ON) | Delta |
+|---|---:|---:|---:|
+| Time-to-first-partial (TTFP) | TODO | TODO | TODO |
+| Stop->Final | TODO | TODO | TODO |
+| Total | TODO | TODO | TODO |
+
+## Light Reliability Validation Sheet (`REM-27`)
+Target: 8 successful runs (WhisperKit x 2 hotkey modes x 4 runs each)
+
+| # | Mode | Run | Result | Notes |
+|---|---|---|---|---|
+| 1 | Hold | 1 |  |  |
+| 2 | Hold | 2 |  |  |
+| 3 | Hold | 3 |  |  |
+| 4 | Hold | 4 |  |  |
+| 5 | Double Tap | 1 |  |  |
+| 6 | Double Tap | 2 |  |  |
+| 7 | Double Tap | 3 |  |  |
+| 8 | Double Tap | 4 |  |  |
 
 ## Acceptance Criteria
-- WhisperKit provides partial transcript updates during recording (not only after stop).
-- On stop, final transcript is produced and saved as timestamped file.
-- No regressions in Hold and Double Tap flows.
-- No stuck states in recording/processing during repeated runs.
-- Performance shows measurable improvement versus current baseline for:
-  - first usable output latency
-  - stop-to-final latency
-- Reliability remains stable across repeated runs in both hotkey modes.
-
-## Validation Plan
-- Functional:
-  - Hold mode: start/stop + partial updates + final transcript save
-  - Double Tap mode: start/stop + partial updates + final transcript save
-- Performance:
-  - capture baseline metrics before optimization
-  - compare after optimization on same machine/config
-- Reliability:
-  - repeated runs across WhisperKit + both hotkey modes
-  - log failures with repro notes
-
-## Deliverables
-- WhisperKit streaming/partial transcription behavior in app UX.
-- WhisperKit performance tuning integrated into runtime config.
-- Phase report with before/after latency summary and reliability notes.
+- WhisperKit shows live partial text while recording.
+- Stop still produces final transcript and saves timestamped file.
+- Hotkey/menu controls remain stable in Hold and Double Tap modes.
+- Visual state flow remains deterministic (`idle -> recording -> processing -> idle`).
+- Before/after latency table is filled.
+- Reliability sheet is filled with no stuck-state failures.

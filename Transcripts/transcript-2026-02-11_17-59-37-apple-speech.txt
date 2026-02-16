@@ -1,4 +1,0 @@
-timestamp: 2026-02-11T16:59:37Z
-backend: Apple Speech
-
-No hello how are you today

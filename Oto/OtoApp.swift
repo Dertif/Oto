@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         state.refreshPermissionStatus()
+        state.prepareWhisperRuntimeForLaunch()
         statusBarController = StatusBarController(state: state)
     }
 }
@@ -153,14 +154,16 @@ final class StatusBarController: NSObject {
         }
 
         let timer = Timer(timeInterval: RecordingAnimation.frameInterval, repeats: true) { [weak self] _ in
-            guard let self else {
-                return
+            Task { @MainActor [weak self] in
+                guard let self else {
+                    return
+                }
+                self.recordingPhase += CGFloat(RecordingAnimation.frameInterval) / RecordingAnimation.cycleDuration
+                if self.recordingPhase > 1 {
+                    self.recordingPhase -= 1
+                }
+                self.updateRecordingIconFrame()
             }
-            self.recordingPhase += CGFloat(RecordingAnimation.frameInterval) / RecordingAnimation.cycleDuration
-            if self.recordingPhase > 1 {
-                self.recordingPhase -= 1
-            }
-            self.updateRecordingIconFrame()
         }
         recordingTimer = timer
         RunLoop.main.add(timer, forMode: .common)

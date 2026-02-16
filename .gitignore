@@ -8,7 +8,7 @@ build/
 xcuserdata/
 
 # Local transcript outputs
-Transcripts/*.txt
+Transcripts/
 
 # Local Linear export/import artifacts
 docs/linear-*.csv

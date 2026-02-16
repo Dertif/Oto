@@ -1,4 +1,0 @@
-timestamp: 2026-02-11T16:53:58Z
-backend: WhisperKit
-
-One, two, three, four, five, eight, how about you?

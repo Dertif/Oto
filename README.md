@@ -7,7 +7,14 @@ Current Phase 0.1 foundations include:
 - Backend switch: Apple Speech / WhisperKit
 - Microphone + speech permission actions
 - Start/stop recording
+- Fn/Globe hotkey control (Hold + Double Tap)
 - Timestamped transcript file output
+
+Phase 0.1.1 adds WhisperKit responsiveness work:
+- WhisperKit live partial transcript updates while recording
+- Launch-time prewarm (best effort)
+- Apple Silicon compute tuning with safe fallback
+- Latency instrumentation (TTFP, Stop->Final, Total)
 
 ## Requirements
 
@@ -93,9 +100,9 @@ xcodebuild -list -project Oto.xcodeproj
 
 ## Tests
 
-There is currently no test target configured yet.
+Unit tests are configured under the `OtoTests` target.
 
-When tests are added, use:
+Run tests:
 
 ```bash
 xcodebuild -project Oto.xcodeproj -scheme Oto -destination 'platform=macOS' test
@@ -149,6 +156,17 @@ Runtime note:
 - No runtime model download is intended for this phase.
 - Debug-only opt-in fallback is available with `OTO_ALLOW_WHISPER_DOWNLOAD=1`.
 
+Runtime behavior:
+- Preferred Whisper path uses live streaming partials while recording.
+- If streaming is unavailable, Debug can force file-based finalization mode.
+- Prewarm is triggered once on app launch to reduce first-run delay.
+
+Debug toggles:
+- `OTO_ALLOW_WHISPER_DOWNLOAD=1`: Debug-only model download fallback.
+- `OTO_DISABLE_WHISPER_STREAMING=1`: disable live streaming and use file finalization.
+- `OTO_DISABLE_WHISPER_PREWARM=1`: disable launch prewarm.
+- `OTO_DISABLE_WHISPER_COMPUTE_TUNING=1`: disable explicit compute options.
+
 ## Transcripts
 
 Transcripts are saved as timestamped `.txt` files in:
@@ -197,3 +215,4 @@ Notes:
 - Apple Speech path works
 - WhisperKit path is integrated and configured for bundled `base` model
 - Model asset packaging/verification should be validated with real model files
+- Phase 0.1.1 tracking doc: `docs/phase-0.1.1.md`

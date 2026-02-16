@@ -1,4 +1,0 @@
-timestamp: 2026-02-11T16:42:26Z
-backend: Apple Speech
-
-1234

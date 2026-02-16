@@ -1,4 +1,0 @@
-timestamp: 2026-02-11T16:55:13Z
-backend: WhisperKit
-
-[Music]

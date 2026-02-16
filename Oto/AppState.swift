@@ -29,9 +29,13 @@ final class AppState: ObservableObject {
     }
     @Published var visualState: RecorderVisualState = .idle
     @Published var transcript = ""
+    @Published var transcriptStableText = ""
+    @Published var transcriptLiveText = ""
     @Published var statusMessage = "Ready"
     @Published var hotkeyGuidanceMessage = "If Fn does not trigger, disable conflicting macOS Fn shortcuts and allow Input Monitoring."
     @Published var whisperModelStatusLabel = WhisperModelStatus.missing.rawValue
+    @Published var whisperRuntimeStatusLabel = WhisperRuntimeStatus.idle.label
+    @Published var whisperLatencySummary = "Whisper latency: no runs yet."
     @Published var lastSavedTranscriptURL: URL?
 
     private let transcriptStore = TranscriptStore()
@@ -40,7 +44,14 @@ final class AppState: ObservableObject {
     private let audioRecorder = AudioFileRecorder()
     private let hotkeyService = GlobalHotkeyService()
     private let hotkeyInterpreter = FnHotkeyInterpreter()
+    private let whisperLatencyTracker = WhisperLatencyTracker()
     private var activeRecordingBackend: STTBackend?
+    private var activeWhisperCaptureMode: WhisperCaptureMode?
+
+    private enum WhisperCaptureMode {
+        case streaming
+        case file
+    }
 
     init() {
         refreshPermissionStatus()
@@ -73,6 +84,13 @@ final class AppState: ObservableObject {
         }
     }
 
+    func prepareWhisperRuntimeForLaunch() {
+        Task {
+            await whisperTranscriber.prepareForLaunch()
+            refreshWhisperRuntimeStatus()
+        }
+    }
+
     func toggleRecording() {
         if isProcessing {
             return
@@ -94,6 +112,8 @@ final class AppState: ObservableObject {
         }
 
         transcript = ""
+        transcriptStableText = ""
+        transcriptLiveText = ""
 
         let backendToStart = selectedBackend
 
@@ -107,11 +127,22 @@ final class AppState: ObservableObject {
                         onUpdate: { [weak self] text, _ in
                             Task { @MainActor in
                                 self?.transcript = text
+                                self?.transcriptStableText = text
+                                self?.transcriptLiveText = ""
                             }
                         },
                         onError: { [weak self] message in
                             Task { @MainActor in
-                                self?.statusMessage = "Speech error: \(message)"
+                                guard let self else {
+                                    return
+                                }
+                                if !self.isRecording &&
+                                    !self.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                                    message.lowercased().contains("no speech detected")
+                                {
+                                    return
+                                }
+                                self.statusMessage = "Speech error: \(message)"
                             }
                         }
                     )
@@ -125,15 +156,24 @@ final class AppState: ObservableObject {
             }
 
         case .whisper:
-            do {
-                _ = try audioRecorder.startRecording()
-                activeRecordingBackend = .whisper
-                statusMessage = "Recording with WhisperKit..."
-                isRecording = true
-            } catch {
-                activeRecordingBackend = nil
-                statusMessage = "Unable to start Whisper recording: \(error.localizedDescription)"
-                isRecording = false
+            statusMessage = "Starting WhisperKit..."
+            Task {
+                do {
+                    try await startWhisperCapture()
+                    activeRecordingBackend = .whisper
+                    isRecording = true
+                    statusMessage = activeWhisperCaptureMode == .streaming
+                        ? "Listening with WhisperKit..."
+                        : "Recording with WhisperKit..."
+                    refreshWhisperRuntimeStatus()
+                } catch {
+                    activeRecordingBackend = nil
+                    activeWhisperCaptureMode = nil
+                    whisperLatencyTracker.reset()
+                    statusMessage = "Unable to start Whisper recording: \(error.localizedDescription)"
+                    isRecording = false
+                    refreshWhisperRuntimeStatus()
+                }
             }
         }
     }
@@ -155,12 +195,18 @@ final class AppState: ObservableObject {
 
         case .whisper:
             isRecording = false
-            guard let audioURL = audioRecorder.stopRecording() else {
-                activeRecordingBackend = nil
+            activeRecordingBackend = nil
+            whisperLatencyTracker.markStopRequested()
+
+            let captureMode = activeWhisperCaptureMode
+            activeWhisperCaptureMode = nil
+            let audioURL = captureMode == .file ? audioRecorder.stopRecording() : nil
+
+            if captureMode == .file, audioURL == nil {
                 statusMessage = "No Whisper recording was found."
+                finalizeWhisperLatencyRun()
                 return
             }
-            activeRecordingBackend = nil
 
             statusMessage = "Transcribing with WhisperKit..."
             isProcessing = true
@@ -172,11 +218,27 @@ final class AppState: ObservableObject {
                 }
 
                 do {
-                    let text = try await whisperTranscriber.transcribe(audioFileURL: audioURL)
+                    let text: String
+                    switch captureMode {
+                    case .streaming:
+                        text = try await whisperTranscriber.stopStreamingAndFinalize()
+                    case .file:
+                        guard let audioURL else {
+                            throw WhisperKitTranscriberError.streamingNotAvailable
+                        }
+                        text = try await whisperTranscriber.transcribe(audioFileURL: audioURL)
+                    case .none:
+                        throw WhisperKitTranscriberError.streamingNotAvailable
+                    }
+
                     transcript = text
+                    transcriptStableText = text
+                    transcriptLiveText = ""
                     saveTranscript(text: text, backend: .whisper)
+                    finalizeWhisperLatencyRun()
                 } catch {
                     statusMessage = "WhisperKit failed: \(error.localizedDescription)"
+                    finalizeWhisperLatencyRun()
                 }
             }
         }
@@ -198,6 +260,7 @@ final class AppState: ObservableObject {
 
     func refreshWhisperModelStatus() {
         whisperModelStatusLabel = whisperTranscriber.refreshModelStatus().rawValue
+        refreshWhisperRuntimeStatus()
     }
 
     func handleFnDown() {
@@ -260,6 +323,59 @@ final class AppState: ObservableObject {
             return
         }
         visualState = .idle
+    }
+
+    private func refreshWhisperRuntimeStatus() {
+        whisperRuntimeStatusLabel = whisperTranscriber.runtimeStatusLabel
+    }
+
+    private func startWhisperCapture() async throws {
+        if whisperTranscriber.streamingEnabled {
+            try await startWhisperStreamingCapture()
+            return
+        }
+
+        try startWhisperFileCapture()
+    }
+
+    private func startWhisperStreamingCapture() async throws {
+        whisperLatencyTracker.beginRun(usingStreaming: true)
+        activeWhisperCaptureMode = .streaming
+
+        do {
+            try await whisperTranscriber.startStreaming { [weak self] partial in
+                Task { @MainActor in
+                    guard let self else {
+                        return
+                    }
+                    self.transcriptStableText = partial.stableText
+                    self.transcriptLiveText = partial.liveText
+                    self.transcript = partial.combinedText
+                    if !partial.combinedText.isEmpty {
+                        self.whisperLatencyTracker.markFirstPartial()
+                    }
+                }
+            }
+        } catch {
+            // Streaming remains the default. If runtime streaming setup fails,
+            // we keep Whisper usable by falling back to file-based capture.
+            whisperLatencyTracker.reset()
+            try startWhisperFileCapture()
+        }
+    }
+
+    private func startWhisperFileCapture() throws {
+        _ = try audioRecorder.startRecording()
+        whisperLatencyTracker.beginRun(usingStreaming: false)
+        activeWhisperCaptureMode = .file
+    }
+
+    private func finalizeWhisperLatencyRun() {
+        guard let metrics = whisperLatencyTracker.finish() else {
+            return
+        }
+        whisperLatencySummary = metrics.summary
+        print("[Oto][WhisperLatency] \(metrics.summary)")
     }
 
     var microphoneStatusLabel: String {

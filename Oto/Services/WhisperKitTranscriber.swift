@@ -1,9 +1,11 @@
+import CoreML
 import Foundation
 import WhisperKit
 
 enum WhisperKitTranscriberError: LocalizedError {
     case missingBundledModelFolder
     case emptyTranscription
+    case streamingNotAvailable
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +13,8 @@ enum WhisperKitTranscriberError: LocalizedError {
             return "Bundled WhisperKit base model was not found. Add model files to Oto/Resources/WhisperModels, or (Debug only) set OTO_ALLOW_WHISPER_DOWNLOAD=1."
         case .emptyTranscription:
             return "WhisperKit returned an empty transcription."
+        case .streamingNotAvailable:
+            return "WhisperKit streaming could not start for this runtime configuration."
         }
     }
 }
@@ -21,16 +25,211 @@ enum WhisperModelStatus: String {
     case missing = "Missing"
 }
 
+enum WhisperRuntimeStatus {
+    case idle
+    case loading
+    case prewarming
+    case ready
+    case streaming
+    case finalizing
+    case error(String)
+
+    var label: String {
+        switch self {
+        case .idle:
+            return "Idle"
+        case .loading:
+            return "Loading"
+        case .prewarming:
+            return "Prewarming"
+        case .ready:
+            return "Ready"
+        case .streaming:
+            return "Streaming"
+        case .finalizing:
+            return "Finalizing"
+        case let .error(message):
+            return "Error: \(message)"
+        }
+    }
+}
+
+struct WhisperPartialTranscript: Equatable {
+    let stableText: String
+    let liveText: String
+
+    static let empty = WhisperPartialTranscript(stableText: "", liveText: "")
+
+    var combinedText: String {
+        [stableText, liveText]
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct WhisperDebugOptions {
+    let disableStreaming: Bool
+    let disablePrewarm: Bool
+    let disableComputeTuning: Bool
+
+    static let current = WhisperDebugOptions(
+        disableStreaming: envFlag("OTO_DISABLE_WHISPER_STREAMING"),
+        disablePrewarm: envFlag("OTO_DISABLE_WHISPER_PREWARM"),
+        disableComputeTuning: envFlag("OTO_DISABLE_WHISPER_COMPUTE_TUNING")
+    )
+
+    private static func envFlag(_ key: String) -> Bool {
+        let rawValue = ProcessInfo.processInfo.environment[key]?.lowercased()
+        return rawValue == "1" || rawValue == "true" || rawValue == "yes"
+    }
+}
+
 final class WhisperKitTranscriber {
     private let fixedModel = "base"
+    private let debugOptions = WhisperDebugOptions.current
+
     private var whisperKit: WhisperKit?
+    private var streamTranscriber: AudioStreamTranscriber?
+    private var streamTask: Task<Void, Never>?
+    private var latestStreamingPartial = WhisperPartialTranscript.empty
+
+    private var hasPrewarmed = false
+
     private(set) var modelStatus: WhisperModelStatus = .missing
+    private(set) var runtimeStatus: WhisperRuntimeStatus = .idle
+
+    var streamingEnabled: Bool {
+        !debugOptions.disableStreaming
+    }
+
+    var runtimeStatusLabel: String {
+        runtimeStatus.label
+    }
 
     init() {
         modelStatus = detectModelStatus()
     }
 
+    func prepareForLaunch() async {
+        guard !debugOptions.disablePrewarm else {
+            runtimeStatus = .idle
+            return
+        }
+
+        do {
+            let runtime = try await loadIfNeeded()
+            guard !hasPrewarmed else {
+                runtimeStatus = .ready
+                return
+            }
+
+            runtimeStatus = .prewarming
+            try await runtime.prewarmModels()
+            hasPrewarmed = true
+            runtimeStatus = .ready
+        } catch {
+            runtimeStatus = .error(error.localizedDescription)
+        }
+    }
+
+    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {
+        guard streamingEnabled else {
+            throw WhisperKitTranscriberError.streamingNotAvailable
+        }
+
+        let whisperKit = try await loadIfNeeded()
+        guard let tokenizer = whisperKit.tokenizer else {
+            throw WhisperKitTranscriberError.streamingNotAvailable
+        }
+
+        latestStreamingPartial = .empty
+
+        let decodeOptions = DecodingOptions(
+            verbose: false,
+            task: .transcribe,
+            language: nil,
+            withoutTimestamps: true,
+            wordTimestamps: false,
+            concurrentWorkerCount: 2
+        )
+
+        let streamTranscriber = AudioStreamTranscriber(
+            audioEncoder: whisperKit.audioEncoder,
+            featureExtractor: whisperKit.featureExtractor,
+            segmentSeeker: whisperKit.segmentSeeker,
+            textDecoder: whisperKit.textDecoder,
+            tokenizer: tokenizer,
+            audioProcessor: whisperKit.audioProcessor,
+            decodingOptions: decodeOptions,
+            requiredSegmentsForConfirmation: 1,
+            useVAD: false,
+            stateChangeCallback: { [weak self] _, newState in
+                guard let self else {
+                    return
+                }
+
+                let partial = Self.buildPartial(from: newState)
+                self.latestStreamingPartial = partial
+                onPartial(partial)
+            }
+        )
+
+        self.streamTranscriber = streamTranscriber
+        runtimeStatus = .streaming
+
+        streamTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                try await streamTranscriber.startStreamTranscription()
+            } catch {
+                self.runtimeStatus = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    func stopStreamingAndFinalize() async throws -> String {
+        guard let streamTranscriber else {
+            throw WhisperKitTranscriberError.streamingNotAvailable
+        }
+
+        runtimeStatus = .finalizing
+
+        await streamTranscriber.stopStreamTranscription()
+        let bufferedFallbackAudio = whisperKit.map { Array($0.audioProcessor.audioSamples) } ?? []
+        streamTask?.cancel()
+        streamTask = nil
+        self.streamTranscriber = nil
+        
+        // Give the stream callback path a short window to publish the final partial.
+        var finalText = ""
+        for _ in 0..<8 {
+            finalText = latestStreamingPartial.combinedText
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !finalText.isEmpty {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+
+        latestStreamingPartial = .empty
+
+        if finalText.isEmpty {
+            // Fallback for short utterances where stream callbacks never emit text.
+            finalText = try await transcribeBufferedAudioSamples(bufferedFallbackAudio)
+        }
+
+        guard !finalText.isEmpty else {
+            runtimeStatus = .ready
+            throw WhisperKitTranscriberError.emptyTranscription
+        }
+        runtimeStatus = .ready
+        return finalText
+    }
+
     func transcribe(audioFileURL: URL) async throws -> String {
+        runtimeStatus = .finalizing
         let whisperKit = try await loadIfNeeded()
 
         let decodeOptions = DecodingOptions(
@@ -47,13 +246,15 @@ final class WhisperKitTranscriber {
         let text = results
             .map(\.text)
             .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedText = Self.cleanTranscriptionText(text)
 
-        guard !text.isEmpty else {
+        guard !cleanedText.isEmpty else {
+            runtimeStatus = .ready
             throw WhisperKitTranscriberError.emptyTranscription
         }
 
-        return text
+        runtimeStatus = .ready
+        return cleanedText
     }
 
     @discardableResult
@@ -65,65 +266,126 @@ final class WhisperKitTranscriber {
 
     private func loadIfNeeded() async throws -> WhisperKit {
         if let whisperKit {
+            if hasPrewarmed {
+                runtimeStatus = .ready
+            }
             return whisperKit
         }
 
+        runtimeStatus = .loading
+
         if let modelFolderURL = bundledModelFolderURL() {
-            let config = WhisperKitConfig(
-                model: fixedModel,
-                modelFolder: modelFolderURL.path,
-                verbose: false,
-                logLevel: .none,
-                prewarm: false,
-                load: true,
-                download: false
+            let runtime = try await loadRuntime(
+                modelFolderURL: modelFolderURL,
+                downloadBaseURL: nil,
+                download: false,
+                preferredCompute: !debugOptions.disableComputeTuning
             )
-            let whisperKit = try await WhisperKit(config)
-            self.whisperKit = whisperKit
+            whisperKit = runtime
             modelStatus = .bundled
-            return whisperKit
+            runtimeStatus = .ready
+            return runtime
         }
 
         if let modelFolderURL = downloadedModelFolderURL() {
-            let config = WhisperKitConfig(
-                model: fixedModel,
-                modelFolder: modelFolderURL.path,
-                verbose: false,
-                logLevel: .none,
-                prewarm: false,
-                load: true,
-                download: false
+            let runtime = try await loadRuntime(
+                modelFolderURL: modelFolderURL,
+                downloadBaseURL: nil,
+                download: false,
+                preferredCompute: !debugOptions.disableComputeTuning
             )
-            let whisperKit = try await WhisperKit(config)
-            self.whisperKit = whisperKit
+            whisperKit = runtime
             modelStatus = .downloaded
-            return whisperKit
+            runtimeStatus = .ready
+            return runtime
         }
 
         guard allowDebugModelDownload else {
             modelStatus = .missing
+            runtimeStatus = .error(WhisperKitTranscriberError.missingBundledModelFolder.localizedDescription)
             throw WhisperKitTranscriberError.missingBundledModelFolder
         }
 
         guard let downloadBaseURL = downloadBaseURL(createIfNeeded: true) else {
             modelStatus = .missing
+            runtimeStatus = .error(WhisperKitTranscriberError.missingBundledModelFolder.localizedDescription)
             throw WhisperKitTranscriberError.missingBundledModelFolder
         }
 
+        let runtime = try await loadRuntime(
+            modelFolderURL: nil,
+            downloadBaseURL: downloadBaseURL,
+            download: true,
+            preferredCompute: !debugOptions.disableComputeTuning
+        )
+        whisperKit = runtime
+        modelStatus = .downloaded
+        runtimeStatus = .ready
+        return runtime
+    }
+
+    private func loadRuntime(
+        modelFolderURL: URL?,
+        downloadBaseURL: URL?,
+        download: Bool,
+        preferredCompute: Bool
+    ) async throws -> WhisperKit {
+        do {
+            return try await createRuntime(
+                modelFolderURL: modelFolderURL,
+                downloadBaseURL: downloadBaseURL,
+                download: download,
+                computeOptions: preferredCompute ? computeOptions : nil
+            )
+        } catch {
+            guard preferredCompute else {
+                throw error
+            }
+
+            return try await createRuntime(
+                modelFolderURL: modelFolderURL,
+                downloadBaseURL: downloadBaseURL,
+                download: download,
+                computeOptions: nil
+            )
+        }
+    }
+
+    private func createRuntime(
+        modelFolderURL: URL?,
+        downloadBaseURL: URL?,
+        download: Bool,
+        computeOptions: ModelComputeOptions?
+    ) async throws -> WhisperKit {
         let config = WhisperKitConfig(
             model: fixedModel,
             downloadBase: downloadBaseURL,
+            modelFolder: modelFolderURL?.path,
+            computeOptions: computeOptions,
             verbose: false,
             logLevel: .none,
             prewarm: false,
             load: true,
-            download: true
+            download: download
         )
 
-        let whisperKit = try await WhisperKit(config)
-        self.whisperKit = whisperKit
-        modelStatus = .downloaded
-        return whisperKit
+        return try await WhisperKit(config)
+    }
+
+    private var computeOptions: ModelComputeOptions {
+        let audioEncoderCompute: MLComputeUnits
+        if #available(macOS 14.0, iOS 17.0, *) {
+            audioEncoderCompute = .cpuAndNeuralEngine
+        } else {
+            audioEncoderCompute = .cpuAndGPU
+        }
+
+        return ModelComputeOptions(
+            melCompute: .cpuAndGPU,
+            audioEncoderCompute: audioEncoderCompute,
+            textDecoderCompute: .cpuAndNeuralEngine,
+            prefillCompute: .cpuOnly
+        )
     }
 
     private var allowDebugModelDownload: Bool {
@@ -260,5 +522,55 @@ final class WhisperKitTranscriber {
             .path
 
         return FileManager.default.fileExists(atPath: compiled) || FileManager.default.fileExists(atPath: package)
+    }
+
+    private static func buildPartial(from state: AudioStreamTranscriber.State) -> WhisperPartialTranscript {
+        let stable = normalizedText(from: state.confirmedSegments.map(\.text).joined(separator: " "))
+
+        let liveFromSegments = normalizedText(from: state.unconfirmedSegments.map(\.text).joined(separator: " "))
+        let fallbackLive = state.currentText == "Waiting for speech..."
+            ? ""
+            : normalizedText(from: state.currentText)
+
+        let live = liveFromSegments.isEmpty ? fallbackLive : liveFromSegments
+
+        return WhisperPartialTranscript(stableText: stable, liveText: live)
+    }
+
+    private static func normalizedText(from text: String) -> String {
+        cleanTranscriptionText(text)
+    }
+
+    private static func cleanTranscriptionText(_ rawText: String) -> String {
+        let withoutSpecialTokens = rawText
+            .replacingOccurrences(
+                of: "<\\|[^|]+\\|>",
+                with: " ",
+                options: .regularExpression
+            )
+
+        return withoutSpecialTokens
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func transcribeBufferedAudioSamples(_ samples: [Float]) async throws -> String {
+        guard !samples.isEmpty, let whisperKit else {
+            return ""
+        }
+
+        let results = try await whisperKit.transcribe(
+            audioArray: samples,
+            decodeOptions: DecodingOptions(
+                verbose: false,
+                withoutTimestamps: true,
+                wordTimestamps: false
+            )
+        )
+
+        let text = results
+            .map(\.text)
+            .joined(separator: " ")
+        return Self.cleanTranscriptionText(text)
     }
 }

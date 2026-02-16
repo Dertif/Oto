@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -11,8 +11,10 @@
 		25840DF77FDF4665A07B3C16 /* AudioEncoder.mlmodelc in Resources */ = {isa = PBXBuildFile; fileRef = 2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */; };
 		35E01C16708C556528014B4B /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7845E21AF6D9514BD7E2F9C9 /* AppState.swift */; };
 		3684C0788B23EFBE7C48346E /* RecorderVisualState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E995F012EDBFAD036A08391C /* RecorderVisualState.swift */; };
+		4170EB41708D9F056748BC44 /* WhisperLatencyMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CFB6A8149870DE1D64256C /* WhisperLatencyMetrics.swift */; };
 		5FF92D94ED9ACFBD5FD1626E /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = 35BE87DA37F36171C1D48F9C /* tokenizer.json */; };
 		67FCC16DF418B363C2F355A4 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */; };
+		7F6C8D201606BCC3BE6419E2 /* WhisperLatencyTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03E6BC1A3ABD168A73D06AD /* WhisperLatencyTrackerTests.swift */; };
 		885C76F54EB7D2BB2F0B68E0 /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = 82248A88E3E75F26B464E92B /* config.json */; };
 		99F65CEFFCF3B09840EB120F /* AppleSpeechTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */; };
 		9DF4F353A36A8E9BAA2960C9 /* AudioFileRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */; };
@@ -43,11 +45,11 @@
 
 /* Begin PBXFileReference section */
 		107B208E59B7C941B87E621D /* Oto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Oto.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */ = {isa = PBXFileReference; path = AudioEncoder.mlmodelc; sourceTree = "<group>"; };
+		2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AudioEncoder.mlmodelc; sourceTree = "<group>"; };
 		2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechTranscriber.swift; sourceTree = "<group>"; };
 		35BE87DA37F36171C1D48F9C /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
 		38B9950FE5EDCF61B9B86D43 /* FnHotkeyInterpreter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnHotkeyInterpreter.swift; sourceTree = "<group>"; };
-		5CCEA0542CFBF70D32692B3F /* TextDecoder.mlmodelc */ = {isa = PBXFileReference; path = TextDecoder.mlmodelc; sourceTree = "<group>"; };
+		5CCEA0542CFBF70D32692B3F /* TextDecoder.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = TextDecoder.mlmodelc; sourceTree = "<group>"; };
 		5D1DEA11D03AD97E547360FA /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
 		5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFileRecorder.swift; sourceTree = "<group>"; };
 		64008F83175E820C70232B03 /* OtoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtoApp.swift; sourceTree = "<group>"; };
@@ -57,11 +59,13 @@
 		82248A88E3E75F26B464E92B /* config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
 		8700D5647F8FF370FAAE1DBD /* WhisperKitTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperKitTranscriber.swift; sourceTree = "<group>"; };
 		94830C5F09064F718DDC7A40 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
+		95CFB6A8149870DE1D64256C /* WhisperLatencyMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperLatencyMetrics.swift; sourceTree = "<group>"; };
 		9C8BADE1E0D5316AC9DA3F1A /* OtoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OtoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */ = {isa = PBXFileReference; path = MelSpectrogram.mlmodelc; sourceTree = "<group>"; };
+		9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MelSpectrogram.mlmodelc; sourceTree = "<group>"; };
 		A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		AE869401E5E5965A1A6214D7 /* generation_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = generation_config.json; sourceTree = "<group>"; };
 		B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyTriggerMode.swift; sourceTree = "<group>"; };
+		C03E6BC1A3ABD168A73D06AD /* WhisperLatencyTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperLatencyTrackerTests.swift; sourceTree = "<group>"; };
 		CBAE7D8C72A54E8641ACB779 /* FnHotkeyInterpreterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnHotkeyInterpreterTests.swift; sourceTree = "<group>"; };
 		E86457BBB8DA2FF8E14176BC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E995F012EDBFAD036A08391C /* RecorderVisualState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderVisualState.swift; sourceTree = "<group>"; };
@@ -84,6 +88,7 @@
 			isa = PBXGroup;
 			children = (
 				CBAE7D8C72A54E8641ACB779 /* FnHotkeyInterpreterTests.swift */,
+				C03E6BC1A3ABD168A73D06AD /* WhisperLatencyTrackerTests.swift */,
 			);
 			path = OtoTests;
 			sourceTree = "<group>";
@@ -194,6 +199,7 @@
 				B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */,
 				E995F012EDBFAD036A08391C /* RecorderVisualState.swift */,
 				774A6CA1F5129C91667D7F0E /* STTBackend.swift */,
+				95CFB6A8149870DE1D64256C /* WhisperLatencyMetrics.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -277,7 +283,6 @@
 			packageReferences = (
 				170D9CBFD2B3CF8B7A5EDD74 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -311,6 +316,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1875F2A87EA9A06682F2FE5E /* FnHotkeyInterpreterTests.swift in Sources */,
+				7F6C8D201606BCC3BE6419E2 /* WhisperLatencyTrackerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -330,6 +336,7 @@
 				BE7833B200852E5ADCFABAD2 /* STTBackend.swift in Sources */,
 				E3D6325196FAB1579E43D706 /* TranscriptStore.swift in Sources */,
 				EF7005588CC8D83C35C525BB /* WhisperKitTranscriber.swift in Sources */,
+				4170EB41708D9F056748BC44 /* WhisperLatencyMetrics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,8 +355,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V3Y2M9YFN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Oto/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -359,6 +370,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.remi.oto;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};
@@ -385,8 +397,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2V3Y2M9YFN;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Oto/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -396,6 +412,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.remi.oto;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 5.0;
 			};

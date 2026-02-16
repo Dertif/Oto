@@ -1,3 +1,0 @@
-timestamp: 2026-02-11T16:39:17Z
-backend: Apple Speech
-

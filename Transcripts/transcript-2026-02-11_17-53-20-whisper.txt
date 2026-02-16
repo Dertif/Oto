@@ -1,4 +1,0 @@
-timestamp: 2026-02-11T16:53:20Z
-backend: WhisperKit
-
-And...

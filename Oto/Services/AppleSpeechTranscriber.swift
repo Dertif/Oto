@@ -25,6 +25,8 @@ final class AppleSpeechTranscriber {
 
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var isStopping = false
+    private var hasReceivedAnyText = false
 
     var isRunning: Bool { audioEngine.isRunning }
 
@@ -42,6 +44,8 @@ final class AppleSpeechTranscriber {
         }
 
         stop()
+        isStopping = false
+        hasReceivedAnyText = false
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -50,11 +54,21 @@ final class AppleSpeechTranscriber {
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
-        recognitionTask = recognizer.recognitionTask(with: request) { result, error in
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else {
+                return
+            }
             if let result {
-                onUpdate(result.bestTranscription.formattedString, result.isFinal)
+                let text = result.bestTranscription.formattedString
+                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    self.hasReceivedAnyText = true
+                }
+                onUpdate(text, result.isFinal)
             }
             if let error {
+                if self.shouldSuppress(error: error) {
+                    return
+                }
                 onError(error.localizedDescription)
             }
         }
@@ -74,6 +88,7 @@ final class AppleSpeechTranscriber {
     }
 
     func stop() {
+        isStopping = true
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -82,6 +97,20 @@ final class AppleSpeechTranscriber {
         recognitionTask?.cancel()
         recognitionRequest = nil
         recognitionTask = nil
+    }
+
+    private func shouldSuppress(error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        if isStopping, hasReceivedAnyText {
+            if message.contains("no speech detected") {
+                return true
+            }
+            let nsError = error as NSError
+            if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 1110 {
+                return true
+            }
+        }
+        return false
     }
 
     func currentSpeechAuthorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {

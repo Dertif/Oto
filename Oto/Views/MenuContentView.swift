@@ -41,6 +41,9 @@ struct MenuContentView: View {
                     Text("Whisper model: \(state.whisperModelStatusLabel)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text("Whisper runtime: \(state.whisperRuntimeStatusLabel)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -59,15 +62,20 @@ struct MenuContentView: View {
             }
             .disabled(state.isProcessing)
 
-            if !state.transcript.isEmpty {
-                Text(state.transcript)
-                    .font(.caption)
-                    .lineLimit(3)
+            if !state.transcriptStableText.isEmpty || !state.transcriptLiveText.isEmpty {
+                transcriptView
             }
 
             Text(state.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if state.selectedBackend == .whisper {
+                Text(state.whisperLatencySummary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             if let url = state.lastSavedTranscriptURL {
                 Text(url.lastPathComponent)
@@ -87,5 +95,22 @@ struct MenuContentView: View {
         }
         .padding(12)
         .frame(width: 340)
+    }
+
+    private var transcriptView: some View {
+        let stable = state.transcriptStableText
+        let live = state.transcriptLiveText
+
+        let renderedText: Text = {
+            guard !live.isEmpty else {
+                return Text(stable)
+            }
+            let stablePrefix = stable.isEmpty ? "" : "\(stable) "
+            return Text("\(stablePrefix)\(Text(live).foregroundStyle(.secondary))")
+        }()
+
+        return renderedText
+            .font(.caption)
+            .lineLimit(4)
     }
 }
