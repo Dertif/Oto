@@ -77,6 +77,14 @@ Keep scope tight and reliability-first.
 
 Do not regenerate project for normal Swift-only edits.
 
+## Linear Task Workflow
+
+- For implementation work tied to a Linear issue:
+  - move issue status from `Backlog`/`Todo` to `In Progress` before starting changes.
+  - move issue status to `Done` only after implementation and validation are complete.
+- If work is blocked, keep or move the issue to the appropriate non-done state and add a blocker note/comment.
+- For planning/discussion-only work, do not move issue status to `In Progress` or `Done`.
+
 ## Editing Rules
 
 - Prefer modifying `project.yml` rather than hand-editing `.pbxproj`.
