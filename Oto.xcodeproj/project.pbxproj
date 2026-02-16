@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -45,11 +45,11 @@
 
 /* Begin PBXFileReference section */
 		107B208E59B7C941B87E621D /* Oto.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Oto.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AudioEncoder.mlmodelc; sourceTree = "<group>"; };
+		2B9F70F62FCF16EDB791DFBB /* AudioEncoder.mlmodelc */ = {isa = PBXFileReference; path = AudioEncoder.mlmodelc; sourceTree = "<group>"; };
 		2C06F49762AB80C6DEF81851 /* AppleSpeechTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechTranscriber.swift; sourceTree = "<group>"; };
 		35BE87DA37F36171C1D48F9C /* tokenizer.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tokenizer.json; sourceTree = "<group>"; };
 		38B9950FE5EDCF61B9B86D43 /* FnHotkeyInterpreter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FnHotkeyInterpreter.swift; sourceTree = "<group>"; };
-		5CCEA0542CFBF70D32692B3F /* TextDecoder.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = TextDecoder.mlmodelc; sourceTree = "<group>"; };
+		5CCEA0542CFBF70D32692B3F /* TextDecoder.mlmodelc */ = {isa = PBXFileReference; path = TextDecoder.mlmodelc; sourceTree = "<group>"; };
 		5D1DEA11D03AD97E547360FA /* TranscriptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptStore.swift; sourceTree = "<group>"; };
 		5EF402121CB300C7F16B0FE5 /* AudioFileRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFileRecorder.swift; sourceTree = "<group>"; };
 		64008F83175E820C70232B03 /* OtoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OtoApp.swift; sourceTree = "<group>"; };
@@ -61,7 +61,7 @@
 		94830C5F09064F718DDC7A40 /* MenuContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuContentView.swift; sourceTree = "<group>"; };
 		95CFB6A8149870DE1D64256C /* WhisperLatencyMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperLatencyMetrics.swift; sourceTree = "<group>"; };
 		9C8BADE1E0D5316AC9DA3F1A /* OtoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OtoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = MelSpectrogram.mlmodelc; sourceTree = "<group>"; };
+		9FC434FD2C91E5D11FBCA965 /* MelSpectrogram.mlmodelc */ = {isa = PBXFileReference; path = MelSpectrogram.mlmodelc; sourceTree = "<group>"; };
 		A506EB87ACFD418186747B2D /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		AE869401E5E5965A1A6214D7 /* generation_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = generation_config.json; sourceTree = "<group>"; };
 		B155DA3F2C3B13F21424A8E3 /* HotkeyTriggerMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyTriggerMode.swift; sourceTree = "<group>"; };
@@ -269,6 +269,12 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E0E81D2D0F664538CA08C5FD = {
+						DevelopmentTeam = 2V3Y2M9YFN;
+						ProvisioningStyle = Automatic;
+					};
+				};
 			};
 			buildConfigurationList = E70C386FE2389110079057C6 /* Build configuration list for PBXProject "Oto" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -283,6 +289,7 @@
 			packageReferences = (
 				170D9CBFD2B3CF8B7A5EDD74 /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -356,7 +363,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -398,7 +405,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
