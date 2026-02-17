@@ -19,6 +19,12 @@ enum AppleSpeechTranscriberError: LocalizedError {
     }
 }
 
+enum AppleSpeechTerminalErrorClass: Equatable {
+    case usableFinal
+    case expectedStopNoise
+    case realFailure
+}
+
 @MainActor
 final class AppleSpeechTranscriber {
     private let recognizer = SFSpeechRecognizer(locale: .current)
@@ -81,7 +87,14 @@ final class AppleSpeechTranscriber {
                 }
 
                 if let error {
-                    if self.shouldSuppress(error: error) {
+                    let classification = Self.classifyTerminalError(
+                        error: error as NSError,
+                        isStopping: self.isStopping,
+                        hasUsableTranscript: self.hasReceivedAnyText || self.hasFinalResult,
+                        hasFinalResult: self.hasFinalResult
+                    )
+
+                    if classification != .realFailure {
                         self.resumeFinalizationWaiter()
                         return
                     }
@@ -164,18 +177,26 @@ final class AppleSpeechTranscriber {
         finalizationWaiter.resume()
     }
 
-    private func shouldSuppress(error: Error) -> Bool {
-        let message = error.localizedDescription.lowercased()
-        if isStopping, hasReceivedAnyText {
-            if message.contains("no speech detected") {
-                return true
-            }
-            let nsError = error as NSError
-            if nsError.domain == "kAFAssistantErrorDomain", nsError.code == 1110 {
-                return true
-            }
+    static func classifyTerminalError(
+        error: NSError,
+        isStopping: Bool,
+        hasUsableTranscript: Bool,
+        hasFinalResult: Bool
+    ) -> AppleSpeechTerminalErrorClass {
+        if isStopping, hasUsableTranscript {
+            return .expectedStopNoise
         }
-        return false
+
+        if hasFinalResult {
+            return .usableFinal
+        }
+
+        let message = error.localizedDescription.lowercased()
+        if isStopping, message.contains("no speech detected") {
+            return .expectedStopNoise
+        }
+
+        return .realFailure
     }
 
     func currentSpeechAuthorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {

@@ -23,6 +23,18 @@ struct MenuContentView: View {
             }
             .pickerStyle(.menu)
 
+            Picker("Quality", selection: $state.qualityPreset) {
+                ForEach(DictationQualityPreset.allCases) { preset in
+                    Text(preset.rawValue).tag(preset)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing)
+
+            Text("Quality presets apply to WhisperKit.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("Hotkey: Fn/Globe")
                     .font(.caption)
@@ -77,6 +89,10 @@ struct MenuContentView: View {
                 .font(.caption2)
                 .disabled(state.isRecording || state.isProcessing || state.autoInjectEnabled)
 
+            Toggle("Allow Cmd+V Fallback (may use clipboard)", isOn: $state.allowCommandVFallback)
+                .font(.caption2)
+                .disabled(state.isRecording || state.isProcessing)
+
             Text("Flow: \(state.reliabilityState.rawValue)")
                 .font(.caption)
                 .foregroundStyle(reliabilityColor)
@@ -89,12 +105,10 @@ struct MenuContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if state.selectedBackend == .whisper {
-                Text(state.whisperLatencySummary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+            Text(state.latencySummary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(3)
 
             if let url = state.lastPrimaryTranscriptURL {
                 Text(url.lastPathComponent)

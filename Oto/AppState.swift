@@ -2,6 +2,7 @@ import AVFoundation
 import AppKit
 import Foundation
 import Speech
+import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
@@ -14,6 +15,16 @@ final class AppState: ObservableObject {
         didSet {
             hotkeyInterpreter.reset(for: hotkeyMode)
             coordinator.requestPermissionsRefresh(permissions: currentPermissionSnapshot(), hotkeyMode: hotkeyMode)
+        }
+    }
+    @AppStorage("oto.qualityPreset") private var qualityPresetRawValueStorage = DictationQualityPreset.fast.rawValue
+    @Published var qualityPreset: DictationQualityPreset = .fast {
+        didSet {
+            guard qualityPreset != oldValue else {
+                return
+            }
+            qualityPresetRawValueStorage = qualityPreset.rawValue
+            whisperTranscriber.setQualityPreset(qualityPreset)
         }
     }
 
@@ -32,11 +43,12 @@ final class AppState: ObservableObject {
     @Published var hotkeyGuidanceMessage = "If Fn does not trigger, disable conflicting macOS Fn shortcuts and allow Input Monitoring."
     @Published var whisperModelStatusLabel = WhisperModelStatus.missing.rawValue
     @Published var whisperRuntimeStatusLabel = WhisperRuntimeStatus.idle.label
-    @Published var whisperLatencySummary = "Whisper latency: no runs yet."
+    @Published var latencySummary = "Latency P50/P95: no runs yet."
     @Published var lastPrimaryTranscriptURL: URL?
     @Published var lastFailureContextURL: URL?
     @Published var autoInjectEnabled = true
     @Published var copyToClipboardWhenAutoInjectDisabled = false
+    @Published var allowCommandVFallback = false
     @Published var debugPanelEnabled = OtoLogger.debugUIPanelEnabled
     @Published var debugConfigurationSummary = OtoLogger.activeDebugFlagsSummary
     @Published var debugCurrentRunID = "None"
@@ -58,6 +70,7 @@ final class AppState: ObservableObject {
         let textInjectionService: TextInjecting = TextInjectionService()
         let audioRecorder: AudioRecording = AudioFileRecorder()
         let latencyTracker: WhisperLatencyTracking = WhisperLatencyTracker()
+        let latencyRecorder: LatencyMetricsRecording = LatencyMetricsRecorder()
         let frontmostTracker: FrontmostAppProviding = FrontmostApplicationTracker()
 
         self.transcriptStore = transcriptStore
@@ -72,6 +85,7 @@ final class AppState: ObservableObject {
             transcriptStore: transcriptStore,
             textInjector: textInjectionService,
             latencyTracker: latencyTracker,
+            latencyRecorder: latencyRecorder,
             frontmostAppProvider: frontmostTracker
         )
 
@@ -80,6 +94,11 @@ final class AppState: ObservableObject {
                 self?.whisperRuntimeStatusLabel = status.label
             }
         }
+
+        let persistedPreset = DictationQualityPreset(rawValue: qualityPresetRawValueStorage) ?? .fast
+        qualityPresetRawValueStorage = persistedPreset.rawValue
+        qualityPreset = persistedPreset
+        whisperTranscriber.setQualityPreset(persistedPreset)
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()
@@ -164,6 +183,7 @@ final class AppState: ObservableObject {
             selectedBackend: selectedBackend,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
+            allowCommandVFallback: allowCommandVFallback,
             triggerMode: hotkeyMode,
             permissions: currentPermissionSnapshot()
         )
@@ -246,7 +266,7 @@ final class AppState: ObservableObject {
         transcript = [projection.transcriptStableText, projection.transcriptLiveText]
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        whisperLatencySummary = projection.whisperLatencySummary
+        latencySummary = projection.latencySummary
         lastPrimaryTranscriptURL = projection.primaryTranscriptURL
         lastFailureContextURL = projection.failureContextURL
         debugCurrentRunID = snapshot.runID ?? "None"
@@ -259,9 +279,11 @@ final class AppState: ObservableObject {
         last_event: \(debugLastEvent)
         flow_state: \(reliabilityState.rawValue)
         backend: \(selectedBackend.rawValue)
+        quality_preset: \(qualityPreset.rawValue)
         hotkey_mode: \(hotkeyMode.rawValue)
         permissions: mic=\(microphoneStatusLabel), speech=\(speechStatusLabel), accessibility=\(accessibilityStatusLabel)
         whisper_runtime: \(whisperRuntimeStatusLabel)
+        latency_summary: \(latencySummary)
         debug_flags: \(debugConfigurationSummary)
         """
 

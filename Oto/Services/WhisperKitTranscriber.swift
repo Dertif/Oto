@@ -67,6 +67,12 @@ struct WhisperPartialTranscript: Equatable {
     }
 }
 
+struct WhisperQualityTuning: Equatable {
+    let requiredSegmentsForConfirmation: Int
+    let concurrentWorkerCount: Int
+    let useVAD: Bool
+}
+
 private struct WhisperDebugOptions {
     let disableStreaming: Bool
     let disablePrewarm: Bool
@@ -96,6 +102,7 @@ final class WhisperKitTranscriber {
     private var hasPrewarmed = false
 
     private(set) var modelStatus: WhisperModelStatus = .missing
+    private(set) var qualityPreset: DictationQualityPreset = .fast
     private(set) var runtimeStatus: WhisperRuntimeStatus = .idle {
         didSet {
             onRuntimeStatusChange?(runtimeStatus)
@@ -112,6 +119,11 @@ final class WhisperKitTranscriber {
 
     var runtimeStatusLabel: String {
         runtimeStatus.label
+    }
+
+    func setQualityPreset(_ preset: DictationQualityPreset) {
+        qualityPreset = preset
+        OtoLogger.log("Whisper quality preset set to \(preset.rawValue)", category: .whisper, level: .info)
     }
 
     init() {
@@ -158,13 +170,14 @@ final class WhisperKitTranscriber {
 
         latestStreamingPartial = .empty
 
+        let tuning = Self.qualityTuning(for: qualityPreset)
         let decodeOptions = DecodingOptions(
             verbose: false,
             task: .transcribe,
             language: nil,
             withoutTimestamps: true,
             wordTimestamps: false,
-            concurrentWorkerCount: 2
+            concurrentWorkerCount: tuning.concurrentWorkerCount
         )
 
         let streamTranscriber = AudioStreamTranscriber(
@@ -175,8 +188,8 @@ final class WhisperKitTranscriber {
             tokenizer: tokenizer,
             audioProcessor: whisperKit.audioProcessor,
             decodingOptions: decodeOptions,
-            requiredSegmentsForConfirmation: 1,
-            useVAD: false,
+            requiredSegmentsForConfirmation: tuning.requiredSegmentsForConfirmation,
+            useVAD: tuning.useVAD,
             stateChangeCallback: { [weak self] _, newState in
                 guard let self else {
                     return
@@ -558,16 +571,24 @@ final class WhisperKitTranscriber {
     }
 
     static func sanitizeTranscriptionText(_ rawText: String) -> String {
-        let withoutSpecialTokens = rawText
-            .replacingOccurrences(
-                of: "<\\|[^|]+\\|>",
-                with: " ",
-                options: .regularExpression
-            )
+        TranscriptNormalizer.shared.normalize(rawText)
+    }
 
-        return withoutSpecialTokens
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    static func qualityTuning(for preset: DictationQualityPreset) -> WhisperQualityTuning {
+        switch preset {
+        case .fast:
+            return WhisperQualityTuning(
+                requiredSegmentsForConfirmation: 1,
+                concurrentWorkerCount: 4,
+                useVAD: false
+            )
+        case .accurate:
+            return WhisperQualityTuning(
+                requiredSegmentsForConfirmation: 2,
+                concurrentWorkerCount: 2,
+                useVAD: true
+            )
+        }
     }
 
     private func transcribeBufferedAudioSamples(_ samples: [Float]) async throws -> String {

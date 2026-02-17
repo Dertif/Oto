@@ -20,6 +20,8 @@ protocol WhisperTranscribing: AnyObject {
     var streamingEnabled: Bool { get }
     var runtimeStatusLabel: String { get }
     var onRuntimeStatusChange: ((WhisperRuntimeStatus) -> Void)? { get set }
+    var qualityPreset: DictationQualityPreset { get }
+    func setQualityPreset(_ preset: DictationQualityPreset)
     func prepareForLaunch() async
     @discardableResult func refreshModelStatus() -> WhisperModelStatus
     func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws
@@ -47,7 +49,7 @@ extension TranscriptPersisting {
 protocol TextInjecting: AnyObject {
     func isAccessibilityTrusted() -> Bool
     func requestAccessibilityPermission()
-    func inject(text: String, preferredApplication: NSRunningApplication?) async -> Result<TextInjectionOutcome, TextInjectionError>
+    func inject(request: TextInjectionRequest) async -> TextInjectionReport
 }
 
 protocol WhisperLatencyTracking: AnyObject {

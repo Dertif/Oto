@@ -10,7 +10,7 @@ struct AppUIProjection: Equatable {
     let transcriptLiveText: String
     let primaryTranscriptURL: URL?
     let failureContextURL: URL?
-    let whisperLatencySummary: String
+    let latencySummary: String
 }
 
 enum AppStateMapper {
@@ -57,7 +57,7 @@ enum AppStateMapper {
             transcriptLiveText: snapshot.transcriptLiveText,
             primaryTranscriptURL: snapshot.artifacts.primaryURL,
             failureContextURL: snapshot.artifacts.failureContextURL,
-            whisperLatencySummary: snapshot.whisperLatencySummary
+            latencySummary: snapshot.latencySummary
         )
     }
 }

@@ -18,7 +18,7 @@ struct FlowSnapshot: Equatable {
     var transcriptLiveText: String = ""
     var finalTranscriptText: String = ""
     var artifacts: TranscriptArtifacts = .empty
-    var whisperLatencySummary: String = "Whisper latency: no runs yet."
+    var latencySummary: String = "Latency P50/P95: no runs yet."
     var lastEvent: FlowEvent?
     var failureMessage: String?
 

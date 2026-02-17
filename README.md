@@ -2,7 +2,7 @@
 
 Oto is a macOS menu bar app focused on local speech-to-text (STT).
 
-Current implemented scope (Phase 0.1 + 0.1.1 + active Phase 0.2 work) includes:
+Current implemented scope (Phase 0.1 -> 0.4 foundation) includes:
 - Menu bar app entry point
 - Backend switch: Apple Speech / WhisperKit
 - Microphone + speech + accessibility permission actions
@@ -12,12 +12,12 @@ Current implemented scope (Phase 0.1 + 0.1.1 + active Phase 0.2 work) includes:
 - Reliability flow states: Ready / Listening / Transcribing / Injected / Failed
 - Optional text injection into focused editable target (toggle in menu)
 - Coordinator-driven flow orchestration (state reducer + UI projection)
-
-Phase 0.1.1 adds WhisperKit responsiveness work:
 - WhisperKit live partial transcript updates while recording
 - Launch-time prewarm (best effort)
 - Apple Silicon compute tuning with safe fallback
-- Latency instrumentation (TTFP, Stop->Final, Total)
+- Shared transcript normalization for Apple + Whisper
+- Backend latency aggregation (P50/P95 summary in UI)
+- Whisper quality presets (`Fast`, `Accurate`) persisted via user settings
 
 ## Requirements
 
@@ -48,6 +48,8 @@ xcodegen --version
 - `Oto/Model/FlowReducer.swift`: deterministic transition logic.
 - `Oto/Model/AppStateProjection.swift`: maps flow snapshot to UI-facing state.
 - `Oto/Services/Protocols/ServiceProtocols.swift`: protocol seams for side-effecting services.
+- `Oto/Services/LatencyMetricsRecorder.swift`: backend latency aggregation + summary formatting.
+- `Oto/Services/TranscriptNormalizer.swift`: shared transcript cleanup rules.
 
 ## First-Time Setup
 
@@ -172,6 +174,10 @@ Runtime behavior:
 - Preferred Whisper path uses live streaming partials while recording.
 - If streaming is unavailable, Debug can force file-based finalization mode.
 - Prewarm is triggered once on app launch to reduce first-run delay.
+- Quality presets:
+  - `Fast`: more responsive partials and lower latency defaults.
+  - `Accurate`: higher confirmation stability and VAD-enabled defaults.
+  - Presets apply to WhisperKit only.
 
 Debug toggles:
 - `OTO_ALLOW_WHISPER_DOWNLOAD=1`: Debug-only model download fallback.
@@ -238,6 +244,9 @@ If status shows an injection failure:
 
 Injection behavior notes:
 - Injection is async and non-blocking.
+- Injection strategy order is deterministic: `AXInsertText -> AX value set -> Cmd+V fallback`.
+- `Cmd+V` fallback is user-controlled via **Allow Cmd+V Fallback (may use clipboard)**.
+- By default, `Cmd+V` fallback is disabled to protect clipboard expectations.
 - Clipboard content is restored after injection when safe.
 - If clipboard changes externally during injection, restore is skipped and Oto keeps a warning-level success outcome.
 - When auto-inject is disabled, Oto saves transcripts without touching clipboard by default.
@@ -256,9 +265,9 @@ Notes:
 
 ## Current Development Status
 
-- Phase 0.2 in progress
+- Phase 0.4 in progress
 - Shared hotkey/menu state machine for recording/transcription is implemented
 - Reliability states and recoverable failure UX are implemented
-- Text injection path is implemented (with explicit failure states)
-- Remaining completion gate is manual end-to-end reliability matrix execution (`docs/phase-0.2.md`)
+- Text injection path includes deterministic strategy chain and user-controlled `Cmd+V` fallback
+- Latency/quality hardening and evidence tracking are documented in `docs/phase-0.4.md`
 - Phase 0.1.1 tracking doc: `docs/phase-0.1.1.md`

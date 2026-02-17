@@ -6,6 +6,32 @@ import XCTest
 
 @MainActor
 final class RecordingFlowCoordinatorTests: XCTestCase {
+    private func successInjectionReport(_ outcome: TextInjectionOutcome = .success) -> TextInjectionReport {
+        .success(outcome, diagnostics: diagnostics())
+    }
+
+    private func failureInjectionReport(_ error: TextInjectionError) -> TextInjectionReport {
+        .failure(error, diagnostics: diagnostics())
+    }
+
+    private func diagnostics(
+        attempts: [InjectionAttempt] = [],
+        finalStrategy: InjectionStrategy? = nil
+    ) -> TextInjectionDiagnostics {
+        TextInjectionDiagnostics(
+            strategyChain: InjectionStrategy.allCases,
+            attempts: attempts,
+            finalStrategy: finalStrategy,
+            focusedRole: "AXTextField",
+            focusedSubrole: nil,
+            focusedProcessID: 42,
+            focusWaitMilliseconds: 150,
+            preferredAppBundleID: "com.apple.TextEdit",
+            preferredAppActivated: true,
+            frontmostAppBundleID: "com.apple.TextEdit"
+        )
+    }
+
     private func startRequest(
         backend: STTBackend = .appleSpeech,
         micAuthorized: Bool = true
@@ -25,12 +51,14 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
     private func stopRequest(
         backend: STTBackend = .appleSpeech,
         autoInjectEnabled: Bool = true,
-        copyToClipboardWhenAutoInjectDisabled: Bool = false
+        copyToClipboardWhenAutoInjectDisabled: Bool = false,
+        allowCommandVFallback: Bool = false
     ) -> StopRecordingRequest {
         StopRecordingRequest(
             selectedBackend: backend,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
+            allowCommandVFallback: allowCommandVFallback,
             triggerMode: .hold,
             permissions: PermissionSnapshot(
                 microphone: "Authorized",
@@ -48,7 +76,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let recorder = MockAudioRecorder()
         let store = MockTranscriptStore()
         let injector = MockTextInjector()
-        injector.result = .success(.success)
+        injector.result = successInjectionReport(.success)
         let latency = MockLatencyTracker()
         let frontmost = MockFrontmostProvider()
 
@@ -60,6 +88,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             transcriptStore: store,
             textInjector: injector,
             latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
             frontmostAppProvider: frontmost,
             nowProvider: { Date(timeIntervalSince1970: 10) }
         )
@@ -79,6 +108,56 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(snapshot.lastEvent, .injectionSucceeded(message: "Injected transcript into focused app."))
         XCTAssertNotNil(snapshot.runID)
         XCTAssertNotNil(snapshot.artifacts.primaryURL)
+        XCTAssertTrue(snapshot.latencySummary.contains("Apple Speech"))
+    }
+
+    func testWhisperRunPublishesBackendLatencySummary() async {
+        let speech = MockSpeechTranscriber()
+        let whisper = MockWhisperTranscriber()
+        whisper.finalizedText = "hello whisper"
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        latency.finishedMetrics = WhisperLatencyMetrics(
+            usedStreaming: false,
+            timeToFirstPartial: nil,
+            stopToFinalTranscript: 0.30,
+            totalDuration: 1.80
+        )
+        let metricsRecorder = MockLatencyRecorder()
+        let frontmost = MockFrontmostProvider()
+
+        var now: TimeInterval = 0
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: metricsRecorder,
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: now) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest(backend: .whisper))
+        await Task.yield()
+        now = 2.0
+        coordinator.stopRecording(request: stopRequest(backend: .whisper))
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertGreaterThan(latency.finishCallCount, 0)
+        XCTAssertEqual(metricsRecorder.recordedMetrics.first?.backend, .whisper)
     }
 
     func testShortCaptureTransitionsToFailedAndAllowsRetry() async {
@@ -100,6 +179,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             transcriptStore: store,
             textInjector: injector,
             latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
             frontmostAppProvider: frontmost,
             nowProvider: { Date(timeIntervalSince1970: t) }
         )
@@ -133,7 +213,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let recorder = MockAudioRecorder()
         let store = MockTranscriptStore()
         let injector = MockTextInjector()
-        injector.result = .failure(.focusedElementUnavailable)
+        injector.result = failureInjectionReport(.focusedElementUnavailable)
         let latency = MockLatencyTracker()
         let frontmost = MockFrontmostProvider()
 
@@ -146,6 +226,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             transcriptStore: store,
             textInjector: injector,
             latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
             frontmostAppProvider: frontmost,
             nowProvider: { Date(timeIntervalSince1970: 1) }
         )
@@ -171,6 +252,11 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertTrue(failureEntry?.contains("run_id:") == true)
         XCTAssertTrue(failureEntry?.contains("hotkey_mode: Hold") == true)
         XCTAssertTrue(failureEntry?.contains("microphone_permission: Authorized") == true)
+        XCTAssertTrue(failureEntry?.contains("injection_strategy_chain:") == true)
+        XCTAssertTrue(failureEntry?.contains("injection_attempts:") == true)
+        XCTAssertTrue(failureEntry?.contains("focused_role:") == true)
+        XCTAssertTrue(failureEntry?.contains("focus_wait_ms:") == true)
+        XCTAssertTrue(failureEntry?.contains("preferred_app_bundle_id:") == true)
     }
 
     func testStopRequestedDuringStartupIsDeferredUntilStartupCompletes() async {
@@ -182,7 +268,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let recorder = MockAudioRecorder()
         let store = MockTranscriptStore()
         let injector = MockTextInjector()
-        injector.result = .success(.success)
+        injector.result = successInjectionReport(.success)
         let latency = MockLatencyTracker()
         let frontmost = MockFrontmostProvider()
 
@@ -196,6 +282,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             transcriptStore: store,
             textInjector: injector,
             latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
             frontmostAppProvider: frontmost,
             nowProvider: { Date(timeIntervalSince1970: now) }
         )
@@ -237,7 +324,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             userInfo: [NSLocalizedDescriptionKey: "Disk full"]
         )
         let injector = MockTextInjector()
-        injector.result = .success(.success)
+        injector.result = successInjectionReport(.success)
         let latency = MockLatencyTracker()
         let frontmost = MockFrontmostProvider()
 
@@ -250,6 +337,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             transcriptStore: store,
             textInjector: injector,
             latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
             frontmostAppProvider: frontmost,
             nowProvider: { Date(timeIntervalSince1970: 10) }
         )
@@ -273,6 +361,46 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(message.contains("Failed to save transcript"))
         XCTAssertFalse(message.contains("Saved transcript"))
+    }
+
+    func testAllowCommandVFallbackIsForwardedToInjectorRequest() async {
+        let speech = MockSpeechTranscriber()
+        speech.finalizedText = "hello"
+
+        let whisper = MockWhisperTranscriber()
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        let frontmost = MockFrontmostProvider()
+
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: 10) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest())
+        await Task.yield()
+        coordinator.stopRecording(request: stopRequest(allowCommandVFallback: true))
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertEqual(injector.lastRequest?.allowCommandVFallback, true)
     }
 
     private func eventually(timeout: TimeInterval, condition: @escaping () -> Bool) async {
@@ -332,7 +460,13 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
 private final class MockWhisperTranscriber: WhisperTranscribing {
     var streamingEnabled: Bool = false
     var runtimeStatusLabel: String = "Ready"
+    var qualityPreset: DictationQualityPreset = .fast
     var onRuntimeStatusChange: ((WhisperRuntimeStatus) -> Void)?
+    var finalizedText = ""
+
+    func setQualityPreset(_ preset: DictationQualityPreset) {
+        qualityPreset = preset
+    }
 
     func prepareForLaunch() async {}
 
@@ -343,11 +477,11 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
     func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {}
 
     func stopStreamingAndFinalize() async throws -> String {
-        ""
+        finalizedText
     }
 
     func transcribe(audioFileURL: URL) async throws -> String {
-        ""
+        finalizedText
     }
 }
 
@@ -379,7 +513,22 @@ private final class MockTranscriptStore: TranscriptPersisting {
 
 @MainActor
 private final class MockTextInjector: TextInjecting {
-    var result: Result<TextInjectionOutcome, TextInjectionError> = .success(.success)
+    var result: TextInjectionReport = .success(
+        .success,
+        diagnostics: TextInjectionDiagnostics(
+            strategyChain: InjectionStrategy.allCases,
+            attempts: [],
+            finalStrategy: .axInsertText,
+            focusedRole: nil,
+            focusedSubrole: nil,
+            focusedProcessID: nil,
+            focusWaitMilliseconds: 0,
+            preferredAppBundleID: nil,
+            preferredAppActivated: false,
+            frontmostAppBundleID: nil
+        )
+    )
+    private(set) var lastRequest: TextInjectionRequest?
 
     func isAccessibilityTrusted() -> Bool {
         true
@@ -387,17 +536,44 @@ private final class MockTextInjector: TextInjecting {
 
     func requestAccessibilityPermission() {}
 
-    func inject(text: String, preferredApplication: NSRunningApplication?) async -> Result<TextInjectionOutcome, TextInjectionError> {
-        result
+    func inject(request: TextInjectionRequest) async -> TextInjectionReport {
+        lastRequest = request
+        return result
     }
 }
 
 private final class MockLatencyTracker: WhisperLatencyTracking {
+    var finishedMetrics: WhisperLatencyMetrics?
+    private(set) var finishCallCount = 0
+
     func beginRun(usingStreaming: Bool, at date: Date) {}
     func markFirstPartial(at date: Date) {}
     func markStopRequested(at date: Date) {}
-    func finish(at date: Date) -> WhisperLatencyMetrics? { nil }
+    func finish(at date: Date) -> WhisperLatencyMetrics? {
+        finishCallCount += 1
+        return finishedMetrics
+    }
     func reset() {}
+}
+
+@MainActor
+private final class MockLatencyRecorder: LatencyMetricsRecording {
+    private(set) var recordedMetrics: [BackendLatencyMetrics] = []
+
+    func record(_ metrics: BackendLatencyMetrics) {
+        recordedMetrics.append(metrics)
+    }
+
+    func summary() -> String {
+        guard !recordedMetrics.isEmpty else {
+            return "Latency P50/P95: no runs yet."
+        }
+        return "Latency P50/P95 - mocked"
+    }
+
+    func aggregates() -> [BackendLatencyAggregate] {
+        []
+    }
 }
 
 private final class MockFrontmostProvider: FrontmostAppProviding {

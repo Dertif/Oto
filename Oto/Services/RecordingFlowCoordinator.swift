@@ -12,6 +12,7 @@ struct StopRecordingRequest {
     let selectedBackend: STTBackend
     let autoInjectEnabled: Bool
     let copyToClipboardWhenAutoInjectDisabled: Bool
+    let allowCommandVFallback: Bool
     let triggerMode: HotkeyTriggerMode
     let permissions: PermissionSnapshot
 }
@@ -43,7 +44,9 @@ final class RecordingFlowCoordinator {
     private let transcriptStore: TranscriptPersisting
     private let textInjector: TextInjecting
     private let latencyTracker: WhisperLatencyTracking
+    private let latencyRecorder: LatencyMetricsRecording
     private let frontmostAppProvider: FrontmostAppProviding
+    private let transcriptNormalizer: TranscriptNormalizer
     private let nowProvider: () -> Date
 
     private(set) var snapshot: FlowSnapshot {
@@ -63,6 +66,11 @@ final class RecordingFlowCoordinator {
     private var latestPermissionSnapshot: PermissionSnapshot = .unknown
     private var latestHotkeyMode: HotkeyTriggerMode = .hold
     private var latestAutoInjectEnabled = true
+    private var latestAllowCommandVFallback = false
+    private var latestInjectionDiagnostics: TextInjectionDiagnostics?
+    private var appleRunStartedAt: Date?
+    private var appleFirstPartialAt: Date?
+    private var appleStopRequestedAt: Date?
 
     init(
         speechTranscriber: SpeechTranscribing,
@@ -71,7 +79,9 @@ final class RecordingFlowCoordinator {
         transcriptStore: TranscriptPersisting,
         textInjector: TextInjecting,
         latencyTracker: WhisperLatencyTracking,
+        latencyRecorder: LatencyMetricsRecording,
         frontmostAppProvider: FrontmostAppProviding,
+        transcriptNormalizer: TranscriptNormalizer = .shared,
         nowProvider: @escaping () -> Date = Date.init,
         initialSnapshot: FlowSnapshot = .initial
     ) {
@@ -81,9 +91,12 @@ final class RecordingFlowCoordinator {
         self.transcriptStore = transcriptStore
         self.textInjector = textInjector
         self.latencyTracker = latencyTracker
+        self.latencyRecorder = latencyRecorder
         self.frontmostAppProvider = frontmostAppProvider
+        self.transcriptNormalizer = transcriptNormalizer
         self.nowProvider = nowProvider
         snapshot = initialSnapshot
+        snapshot.latencySummary = latencyRecorder.summary()
     }
 
     func requestPermissionsRefresh(permissions: PermissionSnapshot? = nil, hotkeyMode: HotkeyTriggerMode? = nil) {
@@ -111,6 +124,11 @@ final class RecordingFlowCoordinator {
         latestPermissionSnapshot = request.permissions
         latestHotkeyMode = request.triggerMode
         latestAutoInjectEnabled = true
+        latestAllowCommandVFallback = false
+        latestInjectionDiagnostics = nil
+        appleRunStartedAt = nil
+        appleFirstPartialAt = nil
+        appleStopRequestedAt = nil
 
         let runID = Self.makeRunID()
         currentRunID = runID
@@ -141,7 +159,11 @@ final class RecordingFlowCoordinator {
                             guard let self else {
                                 return
                             }
-                            self.transition(.transcriptionProgress(stable: text, live: ""))
+                            let normalizedText = self.transcriptNormalizer.normalize(text)
+                            if self.appleFirstPartialAt == nil, !normalizedText.isEmpty {
+                                self.appleFirstPartialAt = self.nowProvider()
+                            }
+                            self.transition(.transcriptionProgress(stable: normalizedText, live: ""))
                         },
                         onError: { [weak self] message in
                             guard let self else {
@@ -152,6 +174,9 @@ final class RecordingFlowCoordinator {
                             }
                             self.activeRecordingBackend = nil
                             self.activeRecordingStartedAt = nil
+                            self.appleRunStartedAt = nil
+                            self.appleFirstPartialAt = nil
+                            self.appleStopRequestedAt = nil
                             self.isCaptureStartupInFlight = false
                             self.pendingStopRequest = nil
                             self.logFlow("Apple Speech error: \(message)", level: .error)
@@ -162,6 +187,7 @@ final class RecordingFlowCoordinator {
                         return
                     }
                     activeRecordingStartedAt = nowProvider()
+                    appleRunStartedAt = activeRecordingStartedAt
                     isCaptureStartupInFlight = false
                     logFlow("Apple Speech capture started")
                     flushPendingStopRequestIfNeeded()
@@ -171,6 +197,9 @@ final class RecordingFlowCoordinator {
                     }
                     activeRecordingBackend = nil
                     activeRecordingStartedAt = nil
+                    appleRunStartedAt = nil
+                    appleFirstPartialAt = nil
+                    appleStopRequestedAt = nil
                     isCaptureStartupInFlight = false
                     pendingStopRequest = nil
                     logFlow("Apple Speech start failed: \(error.localizedDescription)", level: .error)
@@ -217,6 +246,7 @@ final class RecordingFlowCoordinator {
         latestHotkeyMode = request.triggerMode
         latestPermissionSnapshot = request.permissions
         latestAutoInjectEnabled = request.autoInjectEnabled
+        latestAllowCommandVFallback = request.allowCommandVFallback
 
         if isCaptureStartupInFlight || activeRecordingStartedAt == nil {
             pendingStopRequest = request
@@ -225,8 +255,12 @@ final class RecordingFlowCoordinator {
         }
 
         let backendToStop = activeRecordingBackend ?? request.selectedBackend
+        let stopRequestedAt = nowProvider()
         let recordingDuration = activeRecordingStartedAt.map { nowProvider().timeIntervalSince($0) } ?? 0
         activeRecordingStartedAt = nil
+        if backendToStop == .appleSpeech {
+            appleStopRequestedAt = stopRequestedAt
+        }
         logFlow("Stop requested backend=\(backendToStop.rawValue), duration=\(String(format: "%.2f", recordingDuration))s")
 
         if recordingDuration > 0, recordingDuration < 0.2 {
@@ -240,8 +274,11 @@ final class RecordingFlowCoordinator {
             transition(.stopRequested(message: "Transcribing with Apple Speech..."))
 
             Task {
+                defer {
+                    self.finalizeAppleLatencyRun()
+                }
                 let finalizedText = await speechTranscriber.stopAndFinalize(timeout: 0.75)
-                let trimmed = finalizedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = self.transcriptNormalizer.normalize(finalizedText)
 
                 guard !trimmed.isEmpty else {
                     await self.persistFailureContext(backend: .appleSpeech, reason: "No speech detected")
@@ -254,7 +291,8 @@ final class RecordingFlowCoordinator {
                     text: trimmed,
                     backend: .appleSpeech,
                     autoInjectEnabled: request.autoInjectEnabled,
-                    copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled
+                    copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
+                    allowCommandVFallback: request.allowCommandVFallback
                 )
             }
 
@@ -286,7 +324,8 @@ final class RecordingFlowCoordinator {
                         text: text,
                         backend: .whisper,
                         autoInjectEnabled: request.autoInjectEnabled,
-                        copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled
+                        copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
+                        allowCommandVFallback: request.allowCommandVFallback
                     )
                 } catch {
                     await self.persistFailureContext(backend: .whisper, reason: error.localizedDescription)
@@ -316,6 +355,9 @@ final class RecordingFlowCoordinator {
         }
 
         activeRecordingBackend = nil
+        appleRunStartedAt = nil
+        appleFirstPartialAt = nil
+        appleStopRequestedAt = nil
         Task {
             await self.persistFailureContext(backend: backend, reason: "Capture was too short")
             self.transition(.captureTooShort(message: "Capture was too short. Hold slightly longer and retry."))
@@ -326,9 +368,10 @@ final class RecordingFlowCoordinator {
         text: String,
         backend: STTBackend,
         autoInjectEnabled: Bool,
-        copyToClipboardWhenAutoInjectDisabled: Bool
+        copyToClipboardWhenAutoInjectDisabled: Bool,
+        allowCommandVFallback: Bool
     ) async {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = transcriptNormalizer.normalize(text)
         guard !trimmed.isEmpty else {
             await persistFailureContext(backend: backend, reason: "Empty transcription")
             logFlow("\(backend.rawValue) final transcript empty", level: .error)
@@ -379,14 +422,19 @@ final class RecordingFlowCoordinator {
         }
 
         transition(.injectionStarted)
+        latestInjectionDiagnostics = nil
 
         let preferredApp = frontmostAppProvider.frontmostApplication
         let preferredBundleID = preferredApp?.bundleIdentifier ?? "unknown"
         OtoLogger.log("Injecting transcript into app=\(preferredBundleID)", category: .injection, level: .info)
-        let injectionResult = await textInjector.inject(text: trimmed, preferredApplication: preferredApp)
+        let injectionReport = await textInjector.inject(request: TextInjectionRequest(
+            text: trimmed,
+            preferredApplication: preferredApp,
+            allowCommandVFallback: allowCommandVFallback
+        ))
+        latestInjectionDiagnostics = injectionReport.diagnostics
 
-        switch injectionResult {
-        case let .success(outcome):
+        if let outcome = injectionReport.outcome {
             switch outcome {
             case .success:
                 OtoLogger.log("Text injection succeeded", category: .injection, level: .info)
@@ -394,20 +442,39 @@ final class RecordingFlowCoordinator {
                     message: transcriptSaveErrorMessage.map { "Injected transcript into focused app. \($0)" } ?? "Injected transcript into focused app."
                 ))
             case let .successWithWarning(warning):
+                await persistFailureContext(
+                    backend: backend,
+                    reason: "Injection warning: \(warning)",
+                    injectionDiagnostics: injectionReport.diagnostics
+                )
                 OtoLogger.log("Text injection succeeded with warning: \(warning)", category: .injection, level: .info)
                 transition(.injectionSucceeded(
                     message: transcriptSaveErrorMessage.map { "Injected transcript with warning: \(warning). \($0)" } ?? "Injected transcript with warning: \(warning)"
                 ))
             }
+            return
+        }
 
-        case let .failure(error):
-            await persistFailureContext(backend: backend, reason: error.localizedDescription)
+        if let error = injectionReport.error {
+            await persistFailureContext(
+                backend: backend,
+                reason: error.localizedDescription,
+                injectionDiagnostics: injectionReport.diagnostics
+            )
             OtoLogger.log("Text injection failed: \(error.localizedDescription)", category: .injection, level: .error)
             let failureMessage = transcriptSaveErrorMessage.map {
                 "Injection failed: \(error.localizedDescription). \($0)"
             } ?? "Injection failed: \(error.localizedDescription)"
             transition(.injectionFailed(message: failureMessage))
+            return
         }
+
+        await persistFailureContext(
+            backend: backend,
+            reason: "Unknown injection failure",
+            injectionDiagnostics: injectionReport.diagnostics
+        )
+        transition(.injectionFailed(message: "Injection failed: unknown error"))
     }
 
     private func flushPendingStopRequestIfNeeded() {
@@ -419,11 +486,28 @@ final class RecordingFlowCoordinator {
         stopRecording(request: pendingStopRequest)
     }
 
-    private func persistFailureContext(backend: STTBackend, reason: String) async {
+    private func persistFailureContext(
+        backend: STTBackend,
+        reason: String,
+        injectionDiagnostics: TextInjectionDiagnostics? = nil
+    ) async {
         let partialText = snapshot.transcriptStableText.trimmingCharacters(in: .whitespacesAndNewlines)
         let frontmostBundleID = frontmostAppProvider.frontmostApplication?.bundleIdentifier ?? "Unknown"
         let runID = currentRunID ?? "Unknown"
         let lastEvent = snapshot.lastEvent.map { "\($0)" } ?? "None"
+        let diagnostics = injectionDiagnostics ?? latestInjectionDiagnostics
+
+        let strategyChain = diagnostics?.strategyChain.map(\.rawValue).joined(separator: " -> ") ?? "None"
+        let attempts = (diagnostics?.attempts ?? []).map {
+            "\($0.strategy.rawValue):\($0.result.rawValue)\($0.reason.map { "(\($0))" } ?? "")"
+        }.joined(separator: ", ")
+        let finalStrategy = diagnostics?.finalStrategy?.rawValue ?? "None"
+        let focusedRole = diagnostics?.focusedRole ?? "Unknown"
+        let focusedSubrole = diagnostics?.focusedSubrole ?? "Unknown"
+        let focusWaitMs = diagnostics?.focusWaitMilliseconds ?? 0
+        let preferredBundleID = diagnostics?.preferredAppBundleID ?? "Unknown"
+        let preferredActivated = diagnostics?.preferredAppActivated ?? false
+        let diagnosticsFrontmostBundleID = diagnostics?.frontmostAppBundleID ?? frontmostBundleID
 
         let contextText = """
         [failure-context]
@@ -435,11 +519,21 @@ final class RecordingFlowCoordinator {
         reason: \(reason)
         hotkey_mode: \(latestHotkeyMode.rawValue)
         auto_inject_enabled: \(latestAutoInjectEnabled)
+        allow_command_v_fallback: \(latestAllowCommandVFallback)
         microphone_permission: \(latestPermissionSnapshot.microphone)
         speech_permission: \(latestPermissionSnapshot.speech)
         accessibility_permission: \(latestPermissionSnapshot.accessibility)
         whisper_runtime_status: \(whisperTranscriber.runtimeStatusLabel)
         frontmost_app_bundle_id: \(frontmostBundleID)
+        preferred_app_bundle_id: \(preferredBundleID)
+        preferred_app_activated: \(preferredActivated)
+        injection_strategy_chain: \(strategyChain)
+        injection_attempts: \(attempts.isEmpty ? "None" : attempts)
+        injection_final_strategy: \(finalStrategy)
+        focused_role: \(focusedRole)
+        focused_subrole: \(focusedSubrole)
+        focus_wait_ms: \(focusWaitMs)
+        frontmost_app_bundle_id_during_injection: \(diagnosticsFrontmostBundleID)
 
         \(partialText)
         """
@@ -478,6 +572,36 @@ final class RecordingFlowCoordinator {
         var next = snapshot
         next.artifacts.failureContextURL = url
         snapshot = next
+    }
+
+    private func setLatencySummary(_ summary: String) {
+        var next = snapshot
+        next.latencySummary = summary
+        snapshot = next
+    }
+
+    private func finalizeAppleLatencyRun() {
+        guard let startedAt = appleRunStartedAt else {
+            return
+        }
+
+        let completedAt = nowProvider()
+        let metrics = BackendLatencyMetrics(
+            backend: .appleSpeech,
+            usedStreaming: true,
+            timeToFirstPartial: appleFirstPartialAt.map { $0.timeIntervalSince(startedAt) },
+            stopToFinal: appleStopRequestedAt.map { completedAt.timeIntervalSince($0) },
+            total: completedAt.timeIntervalSince(startedAt),
+            recordedAt: completedAt
+        )
+
+        latencyRecorder.record(metrics)
+        setLatencySummary(latencyRecorder.summary())
+        OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(metrics.runSummary)", category: .speech, level: .info)
+
+        appleRunStartedAt = nil
+        appleFirstPartialAt = nil
+        appleStopRequestedAt = nil
     }
 
     private func copyTranscriptToClipboard(_ text: String) -> Bool {
@@ -545,11 +669,18 @@ final class RecordingFlowCoordinator {
             return
         }
 
-        var next = snapshot
-        next.whisperLatencySummary = metrics.summary
-        snapshot = next
+        let backendMetrics = BackendLatencyMetrics(
+            backend: .whisper,
+            usedStreaming: metrics.usedStreaming,
+            timeToFirstPartial: metrics.timeToFirstPartial,
+            stopToFinal: metrics.stopToFinalTranscript,
+            total: metrics.totalDuration,
+            recordedAt: nowProvider()
+        )
+        latencyRecorder.record(backendMetrics)
+        setLatencySummary(latencyRecorder.summary())
 
-        OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(metrics.summary)", category: .whisper, level: .info)
+        OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(backendMetrics.runSummary)", category: .whisper, level: .info)
     }
 
     private func logFlow(_ message: String, level: OtoLogLevel = .info) {

@@ -6,11 +6,12 @@ This file defines how coding agents should work in this repository.
 
 Oto is a macOS menu bar app for local speech-to-text.
 
-Current focus is **Phase 0.2**:
-- reliable end-to-end flow: activation -> capture -> transcription -> text injection
-- Apple Speech + WhisperKit backends in the same state machine
-- clear reliability states and recoverable failures
-- timestamped transcript output for observability
+Current focus is **Phase 0.4**:
+- dictation excellence: latency + quality hardening
+- Apple Speech + WhisperKit on one deterministic flow
+- measurable latency tracking (TTFP, Stop->Final, Total) with P50/P95 summaries
+- transcript normalization consistency across backends
+- Whisper quality presets (`Fast` / `Accurate`) with safe defaults
 
 Reference docs:
 - `docs/phase-0.1.md`
@@ -20,7 +21,7 @@ Reference docs:
 
 ## Phase Boundaries (Important)
 
-In Phase 0.2, do not add:
+In Phase 0.4, do not add:
 - wake-word activation
 - command routing / assistant workflows
 - cloud STT fallback
@@ -46,6 +47,11 @@ Keep scope tight and reliability-first.
   - primary transcript URL
   - failure-context transcript URL
 - Structured diagnostics are available via `OtoLogger` categories (`flow`, `speech`, `whisper`, `injection`, `hotkey`, `artifacts`).
+- Backend latency aggregation is handled by `LatencyMetricsRecorder`.
+- Shared cleanup rules are handled by `TranscriptNormalizer`.
+- Whisper preset defaults:
+  - `Fast`: required segments `1`, workers `4`, VAD `off`.
+  - `Accurate`: required segments `2`, workers `2`, VAD `on`.
 - Debug diagnostics can be enabled with:
   - `OTO_DEBUG_LOG_LEVEL=error|info|debug`
   - `OTO_DEBUG_FLOW_TRACE=1`
@@ -103,4 +109,4 @@ Before handing off work:
 
 ## Notes for Agents
 
-If a task requests features beyond Phase 0.2 scope, pause and call it out explicitly before implementing.
+If a task requests features beyond Phase 0.4 scope, pause and call it out explicitly before implementing.

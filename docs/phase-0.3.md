@@ -50,9 +50,68 @@ Phase 0.2 proved the end-to-end flow can work, but injection reliability varies 
 ## Todo & Progress Tracker
 Status legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
-- [ ] Add injection strategy chain with clear ordering and logging.
-- [ ] Add menu setting for `Allow Cmd+V Fallback`.
-- [ ] Gate clipboard-touching behavior behind explicit fallback setting.
-- [ ] Improve focus stabilization heuristics and timeouts.
-- [ ] Expand failure-context artifact fields for injection diagnostics.
-- [ ] Build and run cross-app reliability matrix and record results.
+- [x] Add injection strategy chain with clear ordering and logging.
+- [x] Add menu setting for `Allow Cmd+V Fallback`.
+- [x] Gate clipboard-touching behavior behind explicit fallback setting.
+- [x] Improve focus stabilization heuristics and timeouts.
+- [x] Expand failure-context artifact fields for injection diagnostics.
+- [~] Build and run cross-app reliability matrix and record results.
+
+## Implemented Behavior Snapshot
+- Injection path now uses deterministic strategy order:
+  - `AXInsertText` (selected text replacement)
+  - AX value set
+  - optional `Cmd+V` fallback
+- New menu setting: `Allow Cmd+V Fallback (may use clipboard)` (default OFF).
+- Clipboard is only touched by the `Cmd+V` fallback strategy.
+- Focus stabilization now waits up to `900ms` with `50ms` polling.
+- Failure-context artifacts now include:
+  - injection strategy chain
+  - strategy attempts with outcomes/reasons
+  - final strategy
+  - focused role/subrole
+  - focus wait time
+  - preferred/frontmost app metadata
+
+## Automated Validation Evidence
+Run on: `2026-02-16`
+
+- `xcodebuild -project Oto.xcodeproj -scheme Oto -destination 'platform=macOS' test`
+- Result: **38 tests passed, 0 failed**
+- Added/updated coverage includes:
+  - strategy order + short-circuit tests
+  - `Cmd+V` disabled/allowed behavior tests
+  - clipboard usage isolation tests
+  - focus stabilization timeout and delayed-focus tests
+  - coordinator diagnostics persistence tests
+  - coordinator plumbing test for `allowCommandVFallback`
+
+## Cross-App Reliability Matrix (REM-41)
+Status legend: `PASS`, `FAIL`, `NOT RUN`
+
+| # | App | Backend | Mode | Result | Notes |
+|---|---|---|---|---|---|
+| 1 | Slack | Apple Speech | Hold | NOT RUN |  |
+| 2 | Slack | Apple Speech | Double Tap | NOT RUN |  |
+| 3 | Slack | WhisperKit | Hold | NOT RUN |  |
+| 4 | Slack | WhisperKit | Double Tap | NOT RUN |  |
+| 5 | Codex app | Apple Speech | Hold | NOT RUN |  |
+| 6 | Codex app | Apple Speech | Double Tap | NOT RUN |  |
+| 7 | Codex app | WhisperKit | Hold | NOT RUN |  |
+| 8 | Codex app | WhisperKit | Double Tap | NOT RUN |  |
+| 9 | Telegram | Apple Speech | Hold | NOT RUN |  |
+| 10 | Telegram | Apple Speech | Double Tap | NOT RUN |  |
+| 11 | Telegram | WhisperKit | Hold | NOT RUN |  |
+| 12 | Telegram | WhisperKit | Double Tap | NOT RUN |  |
+| 13 | Notes | Apple Speech | Hold | NOT RUN |  |
+| 14 | Notes | Apple Speech | Double Tap | NOT RUN |  |
+| 15 | Notes | WhisperKit | Hold | NOT RUN |  |
+| 16 | Notes | WhisperKit | Double Tap | NOT RUN |  |
+| 17 | Browser text field | Apple Speech | Hold | NOT RUN |  |
+| 18 | Browser text field | Apple Speech | Double Tap | NOT RUN |  |
+| 19 | Browser text field | WhisperKit | Hold | NOT RUN |  |
+| 20 | Browser text field | WhisperKit | Double Tap | NOT RUN |  |
+| 21 | Xcode/editor field | Apple Speech | Hold | NOT RUN |  |
+| 22 | Xcode/editor field | Apple Speech | Double Tap | NOT RUN |  |
+| 23 | Xcode/editor field | WhisperKit | Hold | NOT RUN |  |
+| 24 | Xcode/editor field | WhisperKit | Double Tap | NOT RUN |  |

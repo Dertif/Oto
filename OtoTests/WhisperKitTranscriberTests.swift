@@ -17,4 +17,20 @@ final class WhisperKitTranscriberTests: XCTestCase {
 
         XCTAssertTrue(sanitized.isEmpty)
     }
+
+    func testQualityTuningForFastPreset() {
+        let tuning = WhisperKitTranscriber.qualityTuning(for: .fast)
+
+        XCTAssertEqual(tuning.requiredSegmentsForConfirmation, 1)
+        XCTAssertEqual(tuning.concurrentWorkerCount, 4)
+        XCTAssertEqual(tuning.useVAD, false)
+    }
+
+    func testQualityTuningForAccuratePreset() {
+        let tuning = WhisperKitTranscriber.qualityTuning(for: .accurate)
+
+        XCTAssertEqual(tuning.requiredSegmentsForConfirmation, 2)
+        XCTAssertEqual(tuning.concurrentWorkerCount, 2)
+        XCTAssertEqual(tuning.useVAD, true)
+    }
 }
