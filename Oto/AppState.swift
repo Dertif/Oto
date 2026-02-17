@@ -27,6 +27,15 @@ final class AppState: ObservableObject {
             whisperTranscriber.setQualityPreset(qualityPreset)
         }
     }
+    @AppStorage("oto.refinementMode") private var refinementModeRawValueStorage = TextRefinementMode.enhanced.rawValue
+    @Published var refinementMode: TextRefinementMode = .enhanced {
+        didSet {
+            guard refinementMode != oldValue else {
+                return
+            }
+            refinementModeRawValueStorage = refinementMode.rawValue
+        }
+    }
 
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
@@ -44,8 +53,15 @@ final class AppState: ObservableObject {
     @Published var whisperModelStatusLabel = WhisperModelStatus.missing.rawValue
     @Published var whisperRuntimeStatusLabel = WhisperRuntimeStatus.idle.label
     @Published var latencySummary = "Latency P50/P95: no runs yet."
+    @Published var refinementLatencySummary = "Refinement P50/P95: no runs yet."
     @Published var lastPrimaryTranscriptURL: URL?
+    @Published var lastRawTranscriptURL: URL?
+    @Published var lastRefinedTranscriptURL: URL?
     @Published var lastFailureContextURL: URL?
+    @Published var transcriptHistoryEntries: [TranscriptHistoryEntry] = []
+    @Published var transcriptHistoryError: String?
+    @Published var transcriptHistoryLastUpdatedAt: Date?
+    @Published var lastOutputSourceLabel = "Unknown"
     @Published var autoInjectEnabled = true
     @Published var copyToClipboardWhenAutoInjectDisabled = false
     @Published var allowCommandVFallback = false
@@ -55,9 +71,11 @@ final class AppState: ObservableObject {
     @Published var debugLastEvent = "None"
 
     private let transcriptStore: TranscriptPersisting
+    private let transcriptHistoryStore: TranscriptHistoryProviding
     private let appleTranscriber: SpeechTranscribing
     private let whisperTranscriber: WhisperTranscribing
     private let textInjectionService: TextInjecting
+    private let textRefiner: TextRefining
     private let hotkeyService = GlobalHotkeyService()
     private let hotkeyInterpreter = FnHotkeyInterpreter()
     private let frontmostTracker: FrontmostAppProviding
@@ -65,18 +83,23 @@ final class AppState: ObservableObject {
 
     init() {
         let transcriptStore: TranscriptPersisting = TranscriptStore()
+        let transcriptHistoryStore: TranscriptHistoryProviding = TranscriptHistoryStore(folderURL: transcriptStore.folderURL)
         let appleTranscriber: SpeechTranscribing = AppleSpeechTranscriber()
         let whisperTranscriber: WhisperTranscribing = WhisperKitTranscriber()
         let textInjectionService: TextInjecting = TextInjectionService()
+        let textRefiner: TextRefining = AppleFoundationTextRefiner()
         let audioRecorder: AudioRecording = AudioFileRecorder()
         let latencyTracker: WhisperLatencyTracking = WhisperLatencyTracker()
         let latencyRecorder: LatencyMetricsRecording = LatencyMetricsRecorder()
+        let refinementLatencyRecorder: RefinementLatencyRecording = RefinementLatencyRecorder()
         let frontmostTracker: FrontmostAppProviding = FrontmostApplicationTracker()
 
         self.transcriptStore = transcriptStore
+        self.transcriptHistoryStore = transcriptHistoryStore
         self.appleTranscriber = appleTranscriber
         self.whisperTranscriber = whisperTranscriber
         self.textInjectionService = textInjectionService
+        self.textRefiner = textRefiner
         self.frontmostTracker = frontmostTracker
         self.coordinator = RecordingFlowCoordinator(
             speechTranscriber: appleTranscriber,
@@ -84,8 +107,10 @@ final class AppState: ObservableObject {
             audioRecorder: audioRecorder,
             transcriptStore: transcriptStore,
             textInjector: textInjectionService,
+            textRefiner: textRefiner,
             latencyTracker: latencyTracker,
             latencyRecorder: latencyRecorder,
+            refinementLatencyRecorder: refinementLatencyRecorder,
             frontmostAppProvider: frontmostTracker
         )
 
@@ -99,6 +124,9 @@ final class AppState: ObservableObject {
         qualityPresetRawValueStorage = persistedPreset.rawValue
         qualityPreset = persistedPreset
         whisperTranscriber.setQualityPreset(persistedPreset)
+        let persistedRefinementMode = TextRefinementMode(rawValue: refinementModeRawValueStorage) ?? .enhanced
+        refinementModeRawValueStorage = persistedRefinementMode.rawValue
+        refinementMode = persistedRefinementMode
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()
@@ -181,6 +209,7 @@ final class AppState: ObservableObject {
 
         let request = StopRecordingRequest(
             selectedBackend: selectedBackend,
+            refinementMode: refinementMode,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
             allowCommandVFallback: allowCommandVFallback,
@@ -192,6 +221,22 @@ final class AppState: ObservableObject {
 
     func openTranscriptFolder() {
         NSWorkspace.shared.open(transcriptStore.folderURL)
+    }
+
+    func refreshTranscriptHistory() {
+        do {
+            transcriptHistoryEntries = try transcriptHistoryStore.loadEntries()
+            transcriptHistoryError = nil
+            transcriptHistoryLastUpdatedAt = Date()
+        } catch {
+            transcriptHistoryError = "Failed to load transcript history: \(error.localizedDescription)"
+            transcriptHistoryLastUpdatedAt = Date()
+            OtoLogger.log(
+                "Failed to load transcript history: \(error.localizedDescription)",
+                category: .artifacts,
+                level: .error
+            )
+        }
     }
 
     func refreshWhisperModelStatus() {
@@ -267,8 +312,12 @@ final class AppState: ObservableObject {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         latencySummary = projection.latencySummary
+        refinementLatencySummary = projection.refinementLatencySummary
         lastPrimaryTranscriptURL = projection.primaryTranscriptURL
+        lastRawTranscriptURL = projection.rawTranscriptURL
+        lastRefinedTranscriptURL = projection.refinedTranscriptURL
         lastFailureContextURL = projection.failureContextURL
+        lastOutputSourceLabel = projection.outputSource?.rawValue.capitalized ?? "Unknown"
         debugCurrentRunID = snapshot.runID ?? "None"
         debugLastEvent = snapshot.lastEvent.map { "\($0)" } ?? "None"
     }
@@ -280,10 +329,14 @@ final class AppState: ObservableObject {
         flow_state: \(reliabilityState.rawValue)
         backend: \(selectedBackend.rawValue)
         quality_preset: \(qualityPreset.rawValue)
+        refinement_mode: \(refinementMode.rawValue)
+        refinement_availability: \(textRefiner.availabilityLabel)
+        output_source: \(lastOutputSourceLabel)
         hotkey_mode: \(hotkeyMode.rawValue)
         permissions: mic=\(microphoneStatusLabel), speech=\(speechStatusLabel), accessibility=\(accessibilityStatusLabel)
         whisper_runtime: \(whisperRuntimeStatusLabel)
         latency_summary: \(latencySummary)
+        refinement_latency_summary: \(refinementLatencySummary)
         debug_flags: \(debugConfigurationSummary)
         """
 

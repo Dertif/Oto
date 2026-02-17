@@ -9,8 +9,13 @@ struct AppUIProjection: Equatable {
     let transcriptStableText: String
     let transcriptLiveText: String
     let primaryTranscriptURL: URL?
+    let rawTranscriptURL: URL?
+    let refinedTranscriptURL: URL?
     let failureContextURL: URL?
     let latencySummary: String
+    let refinementLatencySummary: String
+    let outputSource: TextOutputSource?
+    let refinementDiagnostics: TextRefinementDiagnostics?
 }
 
 enum AppStateMapper {
@@ -22,6 +27,8 @@ enum AppStateMapper {
         case .listening:
             reliabilityState = .listening
         case .transcribing:
+            reliabilityState = .transcribing
+        case .refining:
             reliabilityState = .transcribing
         case .injecting:
             reliabilityState = .transcribing
@@ -36,7 +43,7 @@ enum AppStateMapper {
         }
 
         let isRecording = snapshot.phase == .listening
-        let isProcessing = snapshot.phase == .transcribing || snapshot.phase == .injecting
+        let isProcessing = snapshot.phase == .transcribing || snapshot.phase == .refining || snapshot.phase == .injecting
 
         let visualState: RecorderVisualState
         if isProcessing {
@@ -56,8 +63,13 @@ enum AppStateMapper {
             transcriptStableText: snapshot.transcriptStableText,
             transcriptLiveText: snapshot.transcriptLiveText,
             primaryTranscriptURL: snapshot.artifacts.primaryURL,
+            rawTranscriptURL: snapshot.artifacts.rawURL,
+            refinedTranscriptURL: snapshot.artifacts.refinedURL,
             failureContextURL: snapshot.artifacts.failureContextURL,
-            latencySummary: snapshot.latencySummary
+            latencySummary: snapshot.latencySummary,
+            refinementLatencySummary: snapshot.refinementLatencySummary,
+            outputSource: snapshot.outputSource,
+            refinementDiagnostics: snapshot.refinementDiagnostics
         )
     }
 }

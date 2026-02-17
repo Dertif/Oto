@@ -34,7 +34,11 @@ enum FlowReducer {
             next.statusMessage = message
             next.transcriptStableText = ""
             next.transcriptLiveText = ""
+            next.rawTranscriptText = ""
+            next.refinedTranscriptText = ""
             next.finalTranscriptText = ""
+            next.outputSource = nil
+            next.refinementDiagnostics = nil
             next.failureMessage = nil
 
         case let .stopRequested(message):
@@ -61,8 +65,8 @@ enum FlowReducer {
             next.activeBackend = nil
 
         case let .captureFailed(message):
-            guard snapshot.phase == .listening || snapshot.phase == .transcribing || snapshot.phase == .injecting else {
-                return reject("captureFailed is only valid from listening/transcribing/injecting")
+            guard snapshot.phase == .listening || snapshot.phase == .transcribing || snapshot.phase == .refining || snapshot.phase == .injecting else {
+                return reject("captureFailed is only valid from listening/transcribing/refining/injecting")
             }
             next.phase = .failed
             next.statusMessage = message
@@ -73,14 +77,60 @@ enum FlowReducer {
             guard snapshot.phase == .transcribing else {
                 return reject("transcriptionSucceeded is only valid from transcribing")
             }
-            next.phase = .injecting
+            next.phase = .refining
+            next.statusMessage = "Refining transcript..."
+            next.rawTranscriptText = text
             next.finalTranscriptText = text
             next.transcriptStableText = text
             next.transcriptLiveText = ""
+            next.outputSource = .raw
+
+        case let .refinementStarted(message):
+            guard snapshot.phase == .refining else {
+                return reject("refinementStarted is only valid from refining")
+            }
+            next.statusMessage = message
+
+        case let .refinementSucceeded(text, diagnostics):
+            guard snapshot.phase == .refining else {
+                return reject("refinementSucceeded is only valid from refining")
+            }
+            next.phase = .injecting
+            next.statusMessage = "Injecting refined transcript..."
+            next.refinedTranscriptText = text
+            next.finalTranscriptText = text
+            next.transcriptStableText = text
+            next.transcriptLiveText = ""
+            next.outputSource = .refined
+            next.refinementDiagnostics = diagnostics
+
+        case let .refinementSkipped(text, message, diagnostics):
+            guard snapshot.phase == .refining else {
+                return reject("refinementSkipped is only valid from refining")
+            }
+            next.phase = .injecting
+            next.statusMessage = message
+            next.finalTranscriptText = text
+            next.transcriptStableText = text
+            next.transcriptLiveText = ""
+            next.outputSource = .raw
+            next.refinementDiagnostics = diagnostics
+
+        case let .refinementFailedFallback(text, message, diagnostics):
+            guard snapshot.phase == .refining else {
+                return reject("refinementFailedFallback is only valid from refining")
+            }
+            next.phase = .injecting
+            next.statusMessage = message
+            next.finalTranscriptText = text
+            next.transcriptStableText = text
+            next.transcriptLiveText = ""
+            next.outputSource = .raw
+            next.refinementDiagnostics = diagnostics
 
         case let .transcriptionFailed(message):
-            guard snapshot.phase == .transcribing else {
-                return reject("transcriptionFailed is only valid from transcribing")
+            guard snapshot.phase == .transcribing || snapshot.phase == .refining else {
+                return reject("transcriptionFailed is only valid from transcribing/refining")
             }
             next.phase = .failed
             next.statusMessage = message
@@ -126,6 +176,12 @@ enum FlowReducer {
             next.activeBackend = nil
             next.statusMessage = message
             next.transcriptLiveText = ""
+            next.transcriptStableText = ""
+            next.rawTranscriptText = ""
+            next.refinedTranscriptText = ""
+            next.finalTranscriptText = ""
+            next.outputSource = nil
+            next.refinementDiagnostics = nil
             next.failureMessage = nil
         }
 

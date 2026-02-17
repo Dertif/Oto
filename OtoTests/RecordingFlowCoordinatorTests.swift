@@ -50,12 +50,14 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
 
     private func stopRequest(
         backend: STTBackend = .appleSpeech,
+        refinementMode: TextRefinementMode = .raw,
         autoInjectEnabled: Bool = true,
         copyToClipboardWhenAutoInjectDisabled: Bool = false,
         allowCommandVFallback: Bool = false
     ) -> StopRecordingRequest {
         StopRecordingRequest(
             selectedBackend: backend,
+            refinementMode: refinementMode,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
             allowCommandVFallback: allowCommandVFallback,

@@ -10,6 +10,7 @@ struct StartRecordingRequest {
 
 struct StopRecordingRequest {
     let selectedBackend: STTBackend
+    let refinementMode: TextRefinementMode
     let autoInjectEnabled: Bool
     let copyToClipboardWhenAutoInjectDisabled: Bool
     let allowCommandVFallback: Bool
@@ -43,8 +44,11 @@ final class RecordingFlowCoordinator {
     private let audioRecorder: AudioRecording
     private let transcriptStore: TranscriptPersisting
     private let textInjector: TextInjecting
+    private let textRefiner: TextRefining
+    private let refinementPolicy: TextRefinementPolicying
     private let latencyTracker: WhisperLatencyTracking
     private let latencyRecorder: LatencyMetricsRecording
+    private let refinementLatencyRecorder: RefinementLatencyRecording
     private let frontmostAppProvider: FrontmostAppProviding
     private let transcriptNormalizer: TranscriptNormalizer
     private let nowProvider: () -> Date
@@ -67,7 +71,10 @@ final class RecordingFlowCoordinator {
     private var latestHotkeyMode: HotkeyTriggerMode = .hold
     private var latestAutoInjectEnabled = true
     private var latestAllowCommandVFallback = false
+    private var latestRefinementMode: TextRefinementMode = .enhanced
     private var latestInjectionDiagnostics: TextInjectionDiagnostics?
+    private var latestRefinementDiagnostics: TextRefinementDiagnostics?
+    private var latestStopRequestedAt: Date?
     private var appleRunStartedAt: Date?
     private var appleFirstPartialAt: Date?
     private var appleStopRequestedAt: Date?
@@ -78,8 +85,11 @@ final class RecordingFlowCoordinator {
         audioRecorder: AudioRecording,
         transcriptStore: TranscriptPersisting,
         textInjector: TextInjecting,
+        textRefiner: TextRefining = AppleFoundationTextRefiner(),
+        refinementPolicy: TextRefinementPolicying = TextRefinementPolicy(),
         latencyTracker: WhisperLatencyTracking,
         latencyRecorder: LatencyMetricsRecording,
+        refinementLatencyRecorder: RefinementLatencyRecording? = nil,
         frontmostAppProvider: FrontmostAppProviding,
         transcriptNormalizer: TranscriptNormalizer = .shared,
         nowProvider: @escaping () -> Date = Date.init,
@@ -90,13 +100,17 @@ final class RecordingFlowCoordinator {
         self.audioRecorder = audioRecorder
         self.transcriptStore = transcriptStore
         self.textInjector = textInjector
+        self.textRefiner = textRefiner
+        self.refinementPolicy = refinementPolicy
         self.latencyTracker = latencyTracker
         self.latencyRecorder = latencyRecorder
+        self.refinementLatencyRecorder = refinementLatencyRecorder ?? RefinementLatencyRecorder()
         self.frontmostAppProvider = frontmostAppProvider
         self.transcriptNormalizer = transcriptNormalizer
         self.nowProvider = nowProvider
         snapshot = initialSnapshot
         snapshot.latencySummary = latencyRecorder.summary()
+        snapshot.refinementLatencySummary = self.refinementLatencyRecorder.summary()
     }
 
     func requestPermissionsRefresh(permissions: PermissionSnapshot? = nil, hotkeyMode: HotkeyTriggerMode? = nil) {
@@ -110,7 +124,7 @@ final class RecordingFlowCoordinator {
     }
 
     func startRecording(request: StartRecordingRequest) {
-        guard snapshot.phase != .listening, snapshot.phase != .transcribing, snapshot.phase != .injecting else {
+        guard snapshot.phase != .listening, snapshot.phase != .transcribing, snapshot.phase != .refining, snapshot.phase != .injecting else {
             OtoLogger.log("Ignored start request while phase=\(snapshot.phase)", category: .flow, level: .debug)
             return
         }
@@ -125,7 +139,10 @@ final class RecordingFlowCoordinator {
         latestHotkeyMode = request.triggerMode
         latestAutoInjectEnabled = true
         latestAllowCommandVFallback = false
+        latestRefinementMode = .enhanced
         latestInjectionDiagnostics = nil
+        latestRefinementDiagnostics = nil
+        latestStopRequestedAt = nil
         appleRunStartedAt = nil
         appleFirstPartialAt = nil
         appleStopRequestedAt = nil
@@ -247,6 +264,7 @@ final class RecordingFlowCoordinator {
         latestPermissionSnapshot = request.permissions
         latestAutoInjectEnabled = request.autoInjectEnabled
         latestAllowCommandVFallback = request.allowCommandVFallback
+        latestRefinementMode = request.refinementMode
 
         if isCaptureStartupInFlight || activeRecordingStartedAt == nil {
             pendingStopRequest = request
@@ -256,6 +274,7 @@ final class RecordingFlowCoordinator {
 
         let backendToStop = activeRecordingBackend ?? request.selectedBackend
         let stopRequestedAt = nowProvider()
+        latestStopRequestedAt = stopRequestedAt
         let recordingDuration = activeRecordingStartedAt.map { nowProvider().timeIntervalSince($0) } ?? 0
         activeRecordingStartedAt = nil
         if backendToStop == .appleSpeech {
@@ -290,6 +309,7 @@ final class RecordingFlowCoordinator {
                 await self.handleFinalTranscript(
                     text: trimmed,
                     backend: .appleSpeech,
+                    refinementMode: request.refinementMode,
                     autoInjectEnabled: request.autoInjectEnabled,
                     copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
                     allowCommandVFallback: request.allowCommandVFallback
@@ -323,6 +343,7 @@ final class RecordingFlowCoordinator {
                     await self.handleFinalTranscript(
                         text: text,
                         backend: .whisper,
+                        refinementMode: request.refinementMode,
                         autoInjectEnabled: request.autoInjectEnabled,
                         copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
                         allowCommandVFallback: request.allowCommandVFallback
@@ -355,6 +376,7 @@ final class RecordingFlowCoordinator {
         }
 
         activeRecordingBackend = nil
+        latestStopRequestedAt = nil
         appleRunStartedAt = nil
         appleFirstPartialAt = nil
         appleStopRequestedAt = nil
@@ -367,57 +389,157 @@ final class RecordingFlowCoordinator {
     private func handleFinalTranscript(
         text: String,
         backend: STTBackend,
+        refinementMode: TextRefinementMode,
         autoInjectEnabled: Bool,
         copyToClipboardWhenAutoInjectDisabled: Bool,
         allowCommandVFallback: Bool
     ) async {
-        let trimmed = transcriptNormalizer.normalize(text)
-        guard !trimmed.isEmpty else {
+        let rawText = transcriptNormalizer.normalize(text)
+        guard !rawText.isEmpty else {
             await persistFailureContext(backend: backend, reason: "Empty transcription")
             logFlow("\(backend.rawValue) final transcript empty", level: .error)
             transition(.transcriptionFailed(message: "\(backend.rawValue) failed: empty transcription."))
             return
         }
 
-        logFlow("Transcription succeeded backend=\(backend.rawValue), charCount=\(trimmed.count)")
-        transition(.transcriptionSucceeded(text: trimmed))
+        logFlow("Transcription succeeded backend=\(backend.rawValue), charCount=\(rawText.count)")
+        transition(.transcriptionSucceeded(text: rawText))
 
-        var transcriptSaveErrorMessage: String?
-        do {
-            let savedURL = try transcriptStore.save(text: trimmed, backend: backend)
-            setPrimaryTranscriptURL(savedURL)
-            OtoLogger.log("Saved transcript artifact: \(savedURL.lastPathComponent)", category: .artifacts, level: .info)
-        } catch {
-            let message = "Failed to save transcript: \(error.localizedDescription)"
-            transcriptSaveErrorMessage = message
-            setStatus(message)
-            OtoLogger.log(message, category: .artifacts, level: .error)
+        let refinementResult = await applyRefinement(
+            rawText: rawText,
+            backend: backend,
+            mode: refinementMode
+        )
+        latestRefinementDiagnostics = refinementResult.diagnostics
+        setRefinementDiagnostics(refinementResult.diagnostics)
+        setOutputSource(refinementResult.outputSource)
+
+        if refinementResult.outputSource == .refined {
+            transition(.refinementSucceeded(text: refinementResult.text, diagnostics: refinementResult.diagnostics))
+        } else if refinementResult.diagnostics.fallbackReason == "refinement_mode_raw" {
+            transition(.refinementSkipped(
+                text: refinementResult.text,
+                message: "Using raw transcript.",
+                diagnostics: refinementResult.diagnostics
+            ))
+        } else {
+            let fallbackReason = refinementResult.diagnostics.fallbackReason ?? "refiner_unavailable"
+            transition(.refinementFailedFallback(
+                text: refinementResult.text,
+                message: "Refinement fallback: \(fallbackReason). Using raw transcript.",
+                diagnostics: refinementResult.diagnostics
+            ))
+        }
+        let refinementWarningMessage: String? = {
+            guard
+                refinementMode == .enhanced,
+                refinementResult.outputSource == .raw,
+                let reason = refinementResult.diagnostics.fallbackReason,
+                reason != "refinement_mode_raw"
+            else {
+                return nil
+            }
+            return "Refinement fallback: \(reason). Using raw transcript."
+        }()
+
+        if refinementMode == .enhanced, let refinementLatency = refinementResult.diagnostics.latency {
+            let stopToFinalOverhead: TimeInterval
+            if let latestStopRequestedAt {
+                stopToFinalOverhead = nowProvider().timeIntervalSince(latestStopRequestedAt)
+            } else {
+                stopToFinalOverhead = refinementLatency
+            }
+
+            refinementLatencyRecorder.record(RefinementLatencyMetrics(
+                backend: backend,
+                mode: refinementMode,
+                refinementLatency: refinementLatency,
+                stopToFinalOverhead: stopToFinalOverhead,
+                recordedAt: nowProvider()
+            ))
+            let summary = refinementLatencyRecorder.summary()
+            setRefinementLatencySummary(summary)
+            OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(summary)", category: .flow, level: .info)
         }
 
+        latestStopRequestedAt = nil
+        let finalText = refinementResult.text
+
+        var persistenceMessages: [String] = []
+        var primaryURL: URL?
+
+        if refinementMode == .enhanced {
+            do {
+                let rawURL = try transcriptStore.save(text: rawText, backend: backend, prefix: "raw-transcript")
+                setRawTranscriptURL(rawURL)
+                OtoLogger.log("Saved raw transcript artifact: \(rawURL.lastPathComponent)", category: .artifacts, level: .info)
+                if refinementResult.outputSource == .raw {
+                    primaryURL = rawURL
+                }
+            } catch {
+                let warning = "Failed to save raw transcript: \(error.localizedDescription)"
+                persistenceMessages.append(warning)
+                OtoLogger.log(warning, category: .artifacts, level: .error)
+            }
+
+            if refinementResult.outputSource == .refined {
+                do {
+                    let refinedURL = try transcriptStore.save(text: finalText, backend: backend, prefix: "refined-transcript")
+                    setRefinedTranscriptURL(refinedURL)
+                    OtoLogger.log("Saved refined transcript artifact: \(refinedURL.lastPathComponent)", category: .artifacts, level: .info)
+                    primaryURL = refinedURL
+                } catch {
+                    let warning = "Failed to save refined transcript: \(error.localizedDescription)"
+                    persistenceMessages.append(warning)
+                    OtoLogger.log(warning, category: .artifacts, level: .error)
+                }
+            }
+        } else {
+            do {
+                let savedURL = try transcriptStore.save(text: finalText, backend: backend)
+                OtoLogger.log("Saved transcript artifact: \(savedURL.lastPathComponent)", category: .artifacts, level: .info)
+                primaryURL = savedURL
+            } catch {
+                let warning = "Failed to save transcript: \(error.localizedDescription)"
+                persistenceMessages.append(warning)
+                OtoLogger.log(warning, category: .artifacts, level: .error)
+            }
+        }
+
+        if let primaryURL {
+            setPrimaryTranscriptURL(primaryURL)
+        }
+
+        let persistenceWarningMessage = persistenceMessages.isEmpty ? nil : persistenceMessages.joined(separator: " ")
+
         guard autoInjectEnabled else {
-            let clipboardCopied = copyToClipboardWhenAutoInjectDisabled ? copyTranscriptToClipboard(trimmed) : false
+            let clipboardCopied = copyToClipboardWhenAutoInjectDisabled ? copyTranscriptToClipboard(finalText) : false
+            let outputLabel = refinementResult.outputSource == .refined ? "refined" : "raw"
             let message: String
-            if let transcriptSaveErrorMessage {
+            if let persistenceWarningMessage {
                 if copyToClipboardWhenAutoInjectDisabled {
                     message = clipboardCopied
-                        ? "\(transcriptSaveErrorMessage) Copied transcript to clipboard."
-                        : "\(transcriptSaveErrorMessage) Clipboard copy failed."
+                        ? "\(persistenceWarningMessage) Copied \(outputLabel) transcript to clipboard."
+                        : "\(persistenceWarningMessage) Clipboard copy failed."
                 } else {
-                    message = "\(transcriptSaveErrorMessage) Auto-inject disabled; transcript not copied to clipboard."
+                    message = "\(persistenceWarningMessage) Auto-inject disabled; transcript not copied to clipboard."
                 }
             } else {
                 if copyToClipboardWhenAutoInjectDisabled {
                     message = clipboardCopied
-                        ? "Saved transcript and copied to clipboard."
-                        : "Saved transcript; clipboard copy failed."
+                        ? "Saved \(outputLabel) transcript and copied to clipboard."
+                        : "Saved \(outputLabel) transcript; clipboard copy failed."
                 } else {
-                    message = "Saved transcript (auto-inject disabled)."
+                    message = "Saved \(outputLabel) transcript (auto-inject disabled)."
                 }
             }
+            let finalMessage = [refinementWarningMessage, message]
+                .compactMap { $0 }
+                .joined(separator: " ")
             logFlow(
                 "Injection skipped by configuration (copyWhenAutoInjectOff=\(copyToClipboardWhenAutoInjectDisabled), copiedToClipboard=\(clipboardCopied))"
             )
-            transition(.injectionSkipped(message: message))
+            transition(.injectionSkipped(message: finalMessage))
             return
         }
 
@@ -428,7 +550,7 @@ final class RecordingFlowCoordinator {
         let preferredBundleID = preferredApp?.bundleIdentifier ?? "unknown"
         OtoLogger.log("Injecting transcript into app=\(preferredBundleID)", category: .injection, level: .info)
         let injectionReport = await textInjector.inject(request: TextInjectionRequest(
-            text: trimmed,
+            text: finalText,
             preferredApplication: preferredApp,
             allowCommandVFallback: allowCommandVFallback
         ))
@@ -438,8 +560,12 @@ final class RecordingFlowCoordinator {
             switch outcome {
             case .success:
                 OtoLogger.log("Text injection succeeded", category: .injection, level: .info)
+                let baseMessage = "Injected transcript into focused app."
+                let completedMessage = [refinementWarningMessage, baseMessage, persistenceWarningMessage]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
                 transition(.injectionSucceeded(
-                    message: transcriptSaveErrorMessage.map { "Injected transcript into focused app. \($0)" } ?? "Injected transcript into focused app."
+                    message: completedMessage
                 ))
             case let .successWithWarning(warning):
                 await persistFailureContext(
@@ -448,8 +574,12 @@ final class RecordingFlowCoordinator {
                     injectionDiagnostics: injectionReport.diagnostics
                 )
                 OtoLogger.log("Text injection succeeded with warning: \(warning)", category: .injection, level: .info)
+                let baseMessage = "Injected transcript with warning: \(warning)"
+                let completedMessage = [refinementWarningMessage, baseMessage, persistenceWarningMessage]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
                 transition(.injectionSucceeded(
-                    message: transcriptSaveErrorMessage.map { "Injected transcript with warning: \(warning). \($0)" } ?? "Injected transcript with warning: \(warning)"
+                    message: completedMessage
                 ))
             }
             return
@@ -462,9 +592,9 @@ final class RecordingFlowCoordinator {
                 injectionDiagnostics: injectionReport.diagnostics
             )
             OtoLogger.log("Text injection failed: \(error.localizedDescription)", category: .injection, level: .error)
-            let failureMessage = transcriptSaveErrorMessage.map {
-                "Injection failed: \(error.localizedDescription). \($0)"
-            } ?? "Injection failed: \(error.localizedDescription)"
+            let failureMessage = [refinementWarningMessage, "Injection failed: \(error.localizedDescription)", persistenceWarningMessage]
+                .compactMap { $0 }
+                .joined(separator: " ")
             transition(.injectionFailed(message: failureMessage))
             return
         }
@@ -475,6 +605,45 @@ final class RecordingFlowCoordinator {
             injectionDiagnostics: injectionReport.diagnostics
         )
         transition(.injectionFailed(message: "Injection failed: unknown error"))
+    }
+
+    private func applyRefinement(
+        rawText: String,
+        backend: STTBackend,
+        mode: TextRefinementMode
+    ) async -> TextRefinementResult {
+        transition(.refinementStarted(message: "Refining transcript..."))
+
+        guard mode == .enhanced else {
+            return .raw(
+                text: rawText,
+                mode: mode,
+                availability: textRefiner.availabilityLabel,
+                fallbackReason: "refinement_mode_raw"
+            )
+        }
+
+        let result = await textRefiner.refine(request: TextRefinementRequest(
+            backend: backend,
+            mode: mode,
+            rawText: rawText,
+            runID: currentRunID
+        ))
+
+        if result.outputSource == .refined {
+            let policyResult = refinementPolicy.validate(rawText: rawText, refinedText: result.text)
+            if !policyResult.isAccepted {
+                return .raw(
+                    text: rawText,
+                    mode: mode,
+                    availability: result.diagnostics.availability,
+                    fallbackReason: policyResult.reason ?? "guardrail_violation",
+                    latency: result.diagnostics.latency
+                )
+            }
+        }
+
+        return result
     }
 
     private func flushPendingStopRequestIfNeeded() {
@@ -496,6 +665,7 @@ final class RecordingFlowCoordinator {
         let runID = currentRunID ?? "Unknown"
         let lastEvent = snapshot.lastEvent.map { "\($0)" } ?? "None"
         let diagnostics = injectionDiagnostics ?? latestInjectionDiagnostics
+        let refinementDiagnostics = latestRefinementDiagnostics
 
         let strategyChain = diagnostics?.strategyChain.map(\.rawValue).joined(separator: " -> ") ?? "None"
         let attempts = (diagnostics?.attempts ?? []).map {
@@ -508,6 +678,11 @@ final class RecordingFlowCoordinator {
         let preferredBundleID = diagnostics?.preferredAppBundleID ?? "Unknown"
         let preferredActivated = diagnostics?.preferredAppActivated ?? false
         let diagnosticsFrontmostBundleID = diagnostics?.frontmostAppBundleID ?? frontmostBundleID
+        let refinementMode = latestRefinementMode.rawValue
+        let refinementAvailability = refinementDiagnostics?.availability ?? textRefiner.availabilityLabel
+        let refinementLatencyMs = Int((refinementDiagnostics?.latency ?? 0) * 1000)
+        let refinementFallbackReason = refinementDiagnostics?.fallbackReason ?? "None"
+        let outputSource = snapshot.outputSource?.rawValue ?? "unknown"
 
         let contextText = """
         [failure-context]
@@ -534,6 +709,11 @@ final class RecordingFlowCoordinator {
         focused_subrole: \(focusedSubrole)
         focus_wait_ms: \(focusWaitMs)
         frontmost_app_bundle_id_during_injection: \(diagnosticsFrontmostBundleID)
+        refinement_mode: \(refinementMode)
+        refinement_availability: \(refinementAvailability)
+        refinement_latency_ms: \(refinementLatencyMs)
+        refinement_fallback_reason: \(refinementFallbackReason)
+        refinement_output_source: \(outputSource)
 
         \(partialText)
         """
@@ -568,6 +748,18 @@ final class RecordingFlowCoordinator {
         snapshot = next
     }
 
+    private func setRawTranscriptURL(_ url: URL) {
+        var next = snapshot
+        next.artifacts.rawURL = url
+        snapshot = next
+    }
+
+    private func setRefinedTranscriptURL(_ url: URL) {
+        var next = snapshot
+        next.artifacts.refinedURL = url
+        snapshot = next
+    }
+
     private func setFailureContextURL(_ url: URL) {
         var next = snapshot
         next.artifacts.failureContextURL = url
@@ -577,6 +769,24 @@ final class RecordingFlowCoordinator {
     private func setLatencySummary(_ summary: String) {
         var next = snapshot
         next.latencySummary = summary
+        snapshot = next
+    }
+
+    private func setRefinementLatencySummary(_ summary: String) {
+        var next = snapshot
+        next.refinementLatencySummary = summary
+        snapshot = next
+    }
+
+    private func setOutputSource(_ source: TextOutputSource) {
+        var next = snapshot
+        next.outputSource = source
+        snapshot = next
+    }
+
+    private func setRefinementDiagnostics(_ diagnostics: TextRefinementDiagnostics) {
+        var next = snapshot
+        next.refinementDiagnostics = diagnostics
         snapshot = next
     }
 

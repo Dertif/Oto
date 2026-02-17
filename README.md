@@ -2,7 +2,7 @@
 
 Oto is a macOS menu bar app focused on local speech-to-text (STT).
 
-Current implemented scope (Phase 0.1 -> 0.4 foundation) includes:
+Current implemented scope (Phase 0.1 -> 0.5 capability baseline) includes:
 - Menu bar app entry point
 - Backend switch: Apple Speech / WhisperKit
 - Microphone + speech + accessibility permission actions
@@ -18,10 +18,15 @@ Current implemented scope (Phase 0.1 -> 0.4 foundation) includes:
 - Shared transcript normalization for Apple + Whisper
 - Backend latency aggregation (P50/P95 summary in UI)
 - Whisper quality presets (`Fast`, `Accurate`) persisted via user settings
+- Optional local text refinement modes (`Raw`, `Enhanced`) for both backends
+- Deterministic refinement fallback to raw text with soft warning semantics
+- Raw/refined transcript artifact split and output-source diagnostics
+- Refinement latency aggregation (P50/P95 summary in UI)
 
 ## Requirements
 
 - macOS with Xcode installed
+- Apple Silicon Mac (arm64 only build target)
 - Xcode command line tools (`xcodebuild` available)
 - `xcodegen` installed (used to generate `Oto.xcodeproj` from `project.yml`)
 
@@ -49,7 +54,10 @@ xcodegen --version
 - `Oto/Model/AppStateProjection.swift`: maps flow snapshot to UI-facing state.
 - `Oto/Services/Protocols/ServiceProtocols.swift`: protocol seams for side-effecting services.
 - `Oto/Services/LatencyMetricsRecorder.swift`: backend latency aggregation + summary formatting.
+- `Oto/Services/RefinementLatencyRecorder.swift`: refinement latency aggregation + summary formatting.
 - `Oto/Services/TranscriptNormalizer.swift`: shared transcript cleanup rules.
+- `Oto/Services/AppleFoundationTextRefiner.swift`: on-device refinement provider.
+- `Oto/Services/TextRefinementPolicy.swift`: meaning-preservation guardrails.
 
 ## First-Time Setup
 
@@ -178,6 +186,9 @@ Runtime behavior:
   - `Fast`: more responsive partials and lower latency defaults.
   - `Accurate`: higher confirmation stability and VAD-enabled defaults.
   - Presets apply to WhisperKit only.
+- Refinement modes:
+  - `Raw`: bypasses refiner, uses normalized transcript text.
+  - `Enhanced`: attempts on-device refinement and falls back to raw on unavailability/timeout/guardrail rejection.
 
 Debug toggles:
 - `OTO_ALLOW_WHISPER_DOWNLOAD=1`: Debug-only model download fallback.
@@ -196,11 +207,14 @@ Transcripts are saved as timestamped `.txt` files in:
 - `~/Documents/Oto/Transcripts`
 
 Use the menu action **Open Transcripts Folder** from the app UI.
+Transcript history is also browsable from **Advanced Settings → Transcripts**.
 
 On recoverable failures, Oto also persists a failure-context transcript artifact to keep debugging visibility.
 The app tracks two separate artifacts:
 - primary transcript artifact (`lastPrimaryTranscriptURL`)
 - failure-context artifact (`lastFailureContextURL`)
+- raw transcript artifact (`raw-transcript-*`) for enhanced runs
+- refined transcript artifact (`refined-transcript-*`) for successful enhanced runs
 - failure-context files use the `failure-context-...` filename prefix for quick scanning
 
 Failure-context artifacts include run metadata for easier debugging:
@@ -210,6 +224,8 @@ Failure-context artifacts include run metadata for easier debugging:
 - hotkey mode + auto-inject setting
 - whisper runtime status
 - frontmost app bundle id
+- refinement mode/availability/latency/fallback reason
+- final output source used for injection (`raw` or `refined`)
 
 ## Troubleshooting
 
@@ -265,9 +281,11 @@ Notes:
 
 ## Current Development Status
 
-- Phase 0.4 in progress
+- Phase 0.5 in progress
 - Shared hotkey/menu state machine for recording/transcription is implemented
 - Reliability states and recoverable failure UX are implemented
 - Text injection path includes deterministic strategy chain and user-controlled `Cmd+V` fallback
-- Latency/quality hardening and evidence tracking are documented in `docs/phase-0.4.md`
+- Optional local refinement (`Raw`/`Enhanced`) is implemented with deterministic fallback
+- Refinement policy, diagnostics, and unit tests are implemented
+- Remaining Phase 0.5 work is manual matrix evidence (`docs/phase-0.5.md`)
 - Phase 0.1.1 tracking doc: `docs/phase-0.1.1.md`

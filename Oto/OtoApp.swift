@@ -54,17 +54,22 @@ final class StatusBarController: NSObject {
     private let state: AppState
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
+    private let advancedSettingsWindowController: AdvancedSettingsWindowController
 
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
     private var recordingPhase: CGFloat = 0
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     init(state: AppState) {
         self.state = state
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.advancedSettingsWindowController = AdvancedSettingsWindowController(state: state)
         super.init()
         configurePopover()
         configureStatusItem()
+        configurePopoverDismissMonitoring()
         observeState()
         DispatchQueue.main.async { [weak self] in
             guard let self else {
@@ -76,12 +81,25 @@ final class StatusBarController: NSObject {
 
     deinit {
         recordingTimer?.invalidate()
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
     }
 
     private func configurePopover() {
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 360, height: 420)
-        popover.contentViewController = NSHostingController(rootView: MenuContentView(state: state))
+        popover.contentViewController = NSHostingController(
+            rootView: MenuContentView(
+                state: state,
+                onOpenAdvancedSettings: { [weak self] in
+                    self?.openAdvancedSettings()
+                }
+            )
+        )
     }
 
     private func configureStatusItem() {
@@ -99,6 +117,78 @@ final class StatusBarController: NSObject {
                 self?.applyIcon(for: newState)
             }
             .store(in: &cancellables)
+    }
+
+    private func configurePopoverDismissMonitoring() {
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            self?.handleLocalMouseDown(event)
+            return event
+        }
+
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.dismissPopoverIfNeeded()
+            }
+        }
+    }
+
+    private func handleLocalMouseDown(_ event: NSEvent) {
+        guard popover.isShown else {
+            return
+        }
+
+        guard let eventWindow = event.window else {
+            if isMouseInsideStatusItemButton() {
+                return
+            }
+            dismissPopoverIfNeeded()
+            return
+        }
+
+        if eventWindow === popover.contentViewController?.view.window {
+            return
+        }
+
+        if eventWindow === statusItem.button?.window {
+            return
+        }
+
+        if isMenuWindow(eventWindow) {
+            return
+        }
+
+        dismissPopoverIfNeeded()
+    }
+
+    private func isMouseInsideStatusItemButton() -> Bool {
+        guard
+            let button = statusItem.button,
+            let buttonWindow = button.window
+        else {
+            return false
+        }
+
+        let mouseInScreen = NSEvent.mouseLocation
+        let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+        let buttonFrameInScreen = buttonWindow.convertToScreen(buttonFrameInWindow)
+        return buttonFrameInScreen.contains(mouseInScreen)
+    }
+
+    private func isMenuWindow(_ window: NSWindow) -> Bool {
+        String(describing: type(of: window)).contains("NSMenuWindow")
+    }
+
+    private func dismissPopoverIfNeeded() {
+        guard popover.isShown else {
+            return
+        }
+
+        popover.performClose(nil)
+    }
+
+    private func openAdvancedSettings() {
+        dismissPopoverIfNeeded()
+        advancedSettingsWindowController.openWindow()
     }
 
     @objc

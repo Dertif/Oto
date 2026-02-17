@@ -65,3 +65,15 @@ protocol FrontmostAppProviding: AnyObject {
     func start()
     func stop()
 }
+
+protocol TextRefining: AnyObject {
+    var availabilityLabel: String { get }
+    func refine(request: TextRefinementRequest) async -> TextRefinementResult
+}
+
+@MainActor
+protocol RefinementLatencyRecording: AnyObject {
+    func record(_ metrics: RefinementLatencyMetrics)
+    func summary() -> String
+    func aggregates() -> [RefinementLatencyAggregate]
+}

@@ -1,154 +1,25 @@
+import AppKit
 import SwiftUI
 
 struct MenuContentView: View {
     @ObservedObject var state: AppState
+    var onOpenAdvancedSettings: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Oto")
-                .font(.headline)
-
-            Picker("Model", selection: $state.selectedBackend) {
-                ForEach(STTBackend.allCases) { backend in
-                    Text(backend.rawValue).tag(backend)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(state.isRecording || state.isProcessing)
-
-            Picker("Hotkey Mode", selection: $state.hotkeyMode) {
-                ForEach(HotkeyTriggerMode.allCases) { mode in
-                    Text(mode.rawValue).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-
-            Picker("Quality", selection: $state.qualityPreset) {
-                ForEach(DictationQualityPreset.allCases) { preset in
-                    Text(preset.rawValue).tag(preset)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(state.isRecording || state.isProcessing)
-
-            Text("Quality presets apply to WhisperKit.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Hotkey: Fn/Globe")
-                    .font(.caption)
-                Text(state.hotkeyGuidanceMessage)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Microphone: \(state.microphoneStatusLabel)")
-                    .font(.caption)
-                Text("Speech: \(state.speechStatusLabel)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Accessibility: \(state.accessibilityStatusLabel)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if state.selectedBackend == .whisper {
-                    Text("Whisper model: \(state.whisperModelStatusLabel)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("Whisper runtime: \(state.whisperRuntimeStatusLabel)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button("Request Mic") {
-                    state.requestMicrophonePermission()
-                }
-
-                Button("Request Speech") {
-                    state.requestSpeechPermission()
-                }
-
-                Button("Request Access") {
-                    state.requestAccessibilityPermission()
-                }
-            }
-
-            Button(state.isRecording ? "Stop Recording" : (state.isProcessing ? "Processing..." : "Start Recording")) {
-                state.toggleRecording()
-            }
-            .disabled(state.isProcessing)
-
-            Toggle("Auto Inject Transcript", isOn: $state.autoInjectEnabled)
-                .font(.caption)
-                .disabled(state.isRecording || state.isProcessing)
-
-            Toggle("Copy When Auto Inject Off", isOn: $state.copyToClipboardWhenAutoInjectDisabled)
-                .font(.caption2)
-                .disabled(state.isRecording || state.isProcessing || state.autoInjectEnabled)
-
-            Toggle("Allow Cmd+V Fallback (may use clipboard)", isOn: $state.allowCommandVFallback)
-                .font(.caption2)
-                .disabled(state.isRecording || state.isProcessing)
-
-            Text("Flow: \(state.reliabilityState.rawValue)")
-                .font(.caption)
-                .foregroundStyle(reliabilityColor)
-
-            if !state.transcriptStableText.isEmpty || !state.transcriptLiveText.isEmpty {
-                transcriptView
-            }
-
-            Text(state.statusMessage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text(state.latencySummary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-
-            if let url = state.lastPrimaryTranscriptURL {
-                Text(url.lastPathComponent)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let url = state.lastFailureContextURL {
-                Text("failure-context: \(url.lastPathComponent)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if state.debugPanelEnabled {
-                Divider()
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Debug")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    Text("Run ID: \(state.debugCurrentRunID)")
-                        .font(.caption2)
-                    Text("Last event: \(state.debugLastEvent)")
-                        .font(.caption2)
-                    Text("Whisper runtime: \(state.whisperRuntimeStatusLabel)")
-                        .font(.caption2)
-                    Text("Flags: \(state.debugConfigurationSummary)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Button("Copy Diagnostics Summary") {
-                        state.copyDebugSummary()
-                    }
-                }
-            }
+            headerSection
+            statusSection
 
             Divider()
+            primaryInteractionSection
 
-            Button("Open Transcripts Folder") {
-                state.openTranscriptFolder()
-            }
+            Divider()
+            secondaryConfigurationSection
 
+            Divider()
+            navigationSection
+
+            Divider()
             Button("Quit Oto") {
                 NSApplication.shared.terminate(nil)
             }
@@ -157,21 +28,106 @@ struct MenuContentView: View {
         .frame(width: 340)
     }
 
-    private var transcriptView: some View {
-        let stable = state.transcriptStableText
-        let live = state.transcriptLiveText
+    private var headerSection: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Oto")
+                .font(.headline)
+            Spacer()
+            Text(state.selectedBackend.rawValue)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 
-        let renderedText: Text = {
-            guard !live.isEmpty else {
-                return Text(stable)
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("Recorder: \(state.reliabilityState.rawValue)")
+                .font(.caption)
+                .foregroundStyle(reliabilityColor)
+            if shouldShowDetailedStatus {
+                Text(state.statusMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            let stablePrefix = stable.isEmpty ? "" : "\(stable) "
-            return Text("\(stablePrefix)\(Text(live).foregroundStyle(.secondary))")
-        }()
+        }
+    }
 
-        return renderedText
-            .font(.caption)
-            .lineLimit(4)
+    private var primaryInteractionSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(recordingActionLabel) {
+                state.toggleRecording()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(state.isProcessing)
+
+            Picker("Backend", selection: $state.selectedBackend) {
+                ForEach(STTBackend.allCases) { backend in
+                    Text(backend.rawValue).tag(backend)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing)
+
+            Picker("Quality", selection: $state.qualityPreset) {
+                ForEach(DictationQualityPreset.allCases) { preset in
+                    Text(preset.rawValue).tag(preset)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing || state.selectedBackend != .whisper)
+
+            Picker("Refinement", selection: $state.refinementMode) {
+                ForEach(TextRefinementMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing)
+        }
+    }
+
+    private var secondaryConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Hotkey Mode", selection: $state.hotkeyMode) {
+                ForEach(HotkeyTriggerMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+
+            Toggle("Auto Inject Transcript", isOn: $state.autoInjectEnabled)
+                .font(.caption)
+                .disabled(state.isRecording || state.isProcessing)
+
+            Toggle("Copy When Auto Inject Off", isOn: $state.copyToClipboardWhenAutoInjectDisabled)
+                .font(.caption2)
+                .disabled(state.isRecording || state.isProcessing || state.autoInjectEnabled)
+        }
+    }
+
+    private var navigationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button("Advanced Settings…") {
+                onOpenAdvancedSettings()
+            }
+
+            Button("Open Transcripts Folder") {
+                state.openTranscriptFolder()
+            }
+        }
+    }
+
+    private var recordingActionLabel: String {
+        if state.isRecording {
+            return "Stop Recording"
+        }
+
+        if state.isProcessing {
+            return "Processing…"
+        }
+
+        return "Start Recording"
     }
 
     private var reliabilityColor: Color {
@@ -185,5 +141,14 @@ struct MenuContentView: View {
         case .failed:
             return .red
         }
+    }
+
+    private var shouldShowDetailedStatus: Bool {
+        let trimmed = state.statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+
+        return trimmed.caseInsensitiveCompare(state.reliabilityState.rawValue) != .orderedSame
     }
 }

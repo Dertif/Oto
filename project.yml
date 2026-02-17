@@ -36,6 +36,8 @@ targets:
         CODE_SIGN_IDENTITY: Apple Development
         "CODE_SIGN_IDENTITY[sdk=macosx*]": Apple Development
         PROVISIONING_PROFILE_SPECIFIER: ""
+        "ARCHS[sdk=macosx*]": arm64
+        "EXCLUDED_ARCHS[sdk=macosx*]": x86_64
     scheme:
       testTargets:
         - OtoTests
@@ -50,3 +52,5 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        "ARCHS[sdk=macosx*]": arm64
+        "EXCLUDED_ARCHS[sdk=macosx*]": x86_64
