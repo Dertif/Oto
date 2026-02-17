@@ -262,7 +262,7 @@ Injection behavior notes:
 - Injection is async and non-blocking.
 - Injection strategy order is deterministic: `AXInsertText -> AX value set -> Cmd+V fallback`.
 - `Cmd+V` fallback is user-controlled via **Allow Cmd+V Fallback (may use clipboard)**.
-- By default, `Cmd+V` fallback is disabled to protect clipboard expectations.
+- By default, `Cmd+V` fallback is enabled and this preference is persisted.
 - Clipboard content is restored after injection when safe.
 - If clipboard changes externally during injection, restore is skipped and Oto keeps a warning-level success outcome.
 - When auto-inject is disabled, Oto saves transcripts without touching clipboard by default.

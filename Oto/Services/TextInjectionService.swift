@@ -143,7 +143,10 @@ struct TextInjectionRuntime {
             return result == .success ? pid : nil
         },
         activatePreferredApp: { app in
-            app.activate(options: [])
+            if app.activate(options: [.activateAllWindows]) {
+                return true
+            }
+            return app.activate(options: [])
         },
         frontmostApplicationProvider: {
             NSWorkspace.shared.frontmostApplication
@@ -208,6 +211,14 @@ struct TextInjectionRuntime {
 
 @MainActor
 final class TextInjectionService: TextInjecting {
+    private enum FocusStabilizationTuning {
+        static let activationSettleNanos: UInt64 = 180_000_000
+        static let timeoutWithoutPreferred: TimeInterval = 0.9
+        static let timeoutWithPreferredInitial: TimeInterval = 1.1
+        static let timeoutWithPreferredRetry: TimeInterval = 0.8
+        static let pollInterval: TimeInterval = 0.05
+    }
+
     private struct FocusedElementSnapshot {
         let element: AXUIElement
         let role: String?
@@ -295,12 +306,35 @@ final class TextInjectionService: TextInjecting {
         let preferredActivated: Bool
         if let preferredApplication = request.preferredApplication {
             preferredActivated = runtime.activatePreferredApp(preferredApplication)
-            await sleepNanos(120_000_000)
+            await sleepNanos(FocusStabilizationTuning.activationSettleNanos)
         } else {
             preferredActivated = false
         }
 
-        let focusResult = await waitForFocusedElement(timeout: 0.9, pollInterval: 0.05)
+        let initialTimeout = request.preferredApplication == nil
+            ? FocusStabilizationTuning.timeoutWithoutPreferred
+            : FocusStabilizationTuning.timeoutWithPreferredInitial
+        var focusResult = await waitForFocusedElement(
+            timeout: initialTimeout,
+            pollInterval: FocusStabilizationTuning.pollInterval
+        )
+
+        if focusResult.focusedElement == nil, let preferredApplication = request.preferredApplication {
+            _ = runtime.activatePreferredApp(preferredApplication)
+            await sleepNanos(FocusStabilizationTuning.activationSettleNanos)
+            let retryResult = await waitForFocusedElement(
+                timeout: FocusStabilizationTuning.timeoutWithPreferredRetry,
+                pollInterval: FocusStabilizationTuning.pollInterval
+            )
+            let totalWait = focusResult.waitMilliseconds
+                + Int(FocusStabilizationTuning.activationSettleNanos / 1_000_000)
+                + retryResult.waitMilliseconds
+            focusResult = FocusWaitResult(
+                focusedElement: retryResult.focusedElement,
+                waitMilliseconds: totalWait
+            )
+        }
+
         let focusedElement = focusResult.focusedElement
 
         if let focusedElement {

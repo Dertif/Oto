@@ -36,6 +36,7 @@ final class AppState: ObservableObject {
             refinementModeRawValueStorage = refinementMode.rawValue
         }
     }
+    @AppStorage("oto.allowCommandVFallback") private var allowCommandVFallbackStorage = true
 
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
@@ -64,7 +65,14 @@ final class AppState: ObservableObject {
     @Published var lastOutputSourceLabel = "Unknown"
     @Published var autoInjectEnabled = true
     @Published var copyToClipboardWhenAutoInjectDisabled = false
-    @Published var allowCommandVFallback = false
+    @Published var allowCommandVFallback = true {
+        didSet {
+            guard allowCommandVFallback != oldValue else {
+                return
+            }
+            allowCommandVFallbackStorage = allowCommandVFallback
+        }
+    }
     @Published var debugPanelEnabled = OtoLogger.debugUIPanelEnabled
     @Published var debugConfigurationSummary = OtoLogger.activeDebugFlagsSummary
     @Published var debugCurrentRunID = "None"
@@ -127,6 +135,7 @@ final class AppState: ObservableObject {
         let persistedRefinementMode = TextRefinementMode(rawValue: refinementModeRawValueStorage) ?? .enhanced
         refinementModeRawValueStorage = persistedRefinementMode.rawValue
         refinementMode = persistedRefinementMode
+        allowCommandVFallback = allowCommandVFallbackStorage
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()

@@ -298,16 +298,26 @@ final class RecordingFlowCoordinator {
                 }
                 let finalizedText = await speechTranscriber.stopAndFinalize(timeout: 0.75)
                 let trimmed = self.transcriptNormalizer.normalize(finalizedText)
+                let partialFallback = self.lastPartialTranscriptFallback()
 
-                guard !trimmed.isEmpty else {
+                guard !trimmed.isEmpty || partialFallback != nil else {
                     await self.persistFailureContext(backend: .appleSpeech, reason: "No speech detected")
                     self.logFlow("Apple Speech finalization produced empty transcript", level: .error)
                     self.transition(.transcriptionFailed(message: "Apple Speech failed: no speech detected."))
                     return
                 }
 
+                let finalText = trimmed.isEmpty ? (partialFallback ?? "") : trimmed
+                if trimmed.isEmpty {
+                    await self.persistFailureContext(
+                        backend: .appleSpeech,
+                        reason: "Apple Speech finalization empty; used latest partial transcript fallback."
+                    )
+                    self.logFlow("Apple Speech finalization empty; used partial transcript fallback", level: .info)
+                }
+
                 await self.handleFinalTranscript(
-                    text: trimmed,
+                    text: finalText,
                     backend: .appleSpeech,
                     refinementMode: request.refinementMode,
                     autoInjectEnabled: request.autoInjectEnabled,
@@ -349,9 +359,28 @@ final class RecordingFlowCoordinator {
                         allowCommandVFallback: request.allowCommandVFallback
                     )
                 } catch {
-                    await self.persistFailureContext(backend: .whisper, reason: error.localizedDescription)
-                    self.logFlow("Whisper finalization failed: \(error.localizedDescription)", level: .error)
-                    self.transition(.transcriptionFailed(message: "WhisperKit failed: \(error.localizedDescription)"))
+                    if
+                        case WhisperKitTranscriberError.emptyTranscription = error,
+                        let partialFallback = self.lastPartialTranscriptFallback()
+                    {
+                        await self.persistFailureContext(
+                            backend: .whisper,
+                            reason: "Whisper finalization empty; used latest partial transcript fallback."
+                        )
+                        self.logFlow("Whisper finalization empty; used partial transcript fallback", level: .info)
+                        await self.handleFinalTranscript(
+                            text: partialFallback,
+                            backend: .whisper,
+                            refinementMode: request.refinementMode,
+                            autoInjectEnabled: request.autoInjectEnabled,
+                            copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
+                            allowCommandVFallback: request.allowCommandVFallback
+                        )
+                    } else {
+                        await self.persistFailureContext(backend: .whisper, reason: error.localizedDescription)
+                        self.logFlow("Whisper finalization failed: \(error.localizedDescription)", level: .error)
+                        self.transition(.transcriptionFailed(message: "WhisperKit failed: \(error.localizedDescription)"))
+                    }
                 }
 
                 self.finalizeWhisperLatencyRun()
@@ -586,6 +615,20 @@ final class RecordingFlowCoordinator {
         }
 
         if let error = injectionReport.error {
+            if isSoftInjectionError(error) {
+                await persistFailureContext(
+                    backend: backend,
+                    reason: "Injection skipped: \(error.localizedDescription)",
+                    injectionDiagnostics: injectionReport.diagnostics
+                )
+                OtoLogger.log("Text injection skipped: \(error.localizedDescription)", category: .injection, level: .info)
+                let skippedMessage = [refinementWarningMessage, "Injection skipped: \(error.localizedDescription)", persistenceWarningMessage]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                transition(.injectionSkipped(message: skippedMessage))
+                return
+            }
+
             await persistFailureContext(
                 backend: backend,
                 reason: error.localizedDescription,
@@ -605,6 +648,15 @@ final class RecordingFlowCoordinator {
             injectionDiagnostics: injectionReport.diagnostics
         )
         transition(.injectionFailed(message: "Injection failed: unknown error"))
+    }
+
+    private func isSoftInjectionError(_ error: TextInjectionError) -> Bool {
+        switch error {
+        case .focusedElementUnavailable, .focusedElementNotEditable, .focusStabilizationTimedOut:
+            return true
+        case .emptyText, .accessibilityPermissionRequired, .eventSourceUnavailable:
+            return false
+        }
     }
 
     private func applyRefinement(
@@ -895,6 +947,14 @@ final class RecordingFlowCoordinator {
 
     private func logFlow(_ message: String, level: OtoLogLevel = .info) {
         OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(message)", category: .flow, level: level)
+    }
+
+    private func lastPartialTranscriptFallback() -> String? {
+        let combined = [snapshot.transcriptStableText, snapshot.transcriptLiveText]
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = transcriptNormalizer.normalize(combined)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private static func makeRunID() -> String {

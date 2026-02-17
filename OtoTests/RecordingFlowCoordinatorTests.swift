@@ -207,7 +207,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         }
     }
 
-    func testInjectionFailureCreatesFailureContextArtifact() async {
+    func testSoftInjectionFailureSkipsInjectionAndCreatesFailureContextArtifact() async {
         let speech = MockSpeechTranscriber()
         speech.finalizedText = "hello"
 
@@ -215,7 +215,62 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let recorder = MockAudioRecorder()
         let store = MockTranscriptStore()
         let injector = MockTextInjector()
-        injector.result = failureInjectionReport(.focusedElementUnavailable)
+        injector.result = failureInjectionReport(.focusStabilizationTimedOut)
+        let latency = MockLatencyTracker()
+        let frontmost = MockFrontmostProvider()
+
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: 1) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest())
+        await Task.yield()
+        coordinator.stopRecording(request: stopRequest())
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertNotNil(snapshot.artifacts.primaryURL)
+        XCTAssertNotNil(snapshot.artifacts.failureContextURL)
+        XCTAssertTrue(snapshot.artifacts.failureContextURL?.lastPathComponent.contains("failure-context-") == true)
+        XCTAssertTrue(snapshot.statusMessage.contains("Injection skipped: Timed out while waiting for a focused target."))
+        let failureEntry = store.savedEntries
+            .map(\.text)
+            .first { $0.contains("[failure-context]") }
+        XCTAssertNotNil(failureEntry)
+        XCTAssertTrue(failureEntry?.contains("run_id:") == true)
+        XCTAssertTrue(failureEntry?.contains("hotkey_mode: Hold") == true)
+        XCTAssertTrue(failureEntry?.contains("microphone_permission: Authorized") == true)
+        XCTAssertTrue(failureEntry?.contains("injection_strategy_chain:") == true)
+        XCTAssertTrue(failureEntry?.contains("injection_attempts:") == true)
+        XCTAssertTrue(failureEntry?.contains("focused_role:") == true)
+        XCTAssertTrue(failureEntry?.contains("focus_wait_ms:") == true)
+        XCTAssertTrue(failureEntry?.contains("preferred_app_bundle_id:") == true)
+    }
+
+    func testHardInjectionFailureStillTransitionsToFailed() async {
+        let speech = MockSpeechTranscriber()
+        speech.finalizedText = "hello"
+
+        let whisper = MockWhisperTranscriber()
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = failureInjectionReport(.eventSourceUnavailable)
         let latency = MockLatencyTracker()
         let frontmost = MockFrontmostProvider()
 
@@ -244,21 +299,8 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
             snapshot.phase == .failed
         }
 
-        XCTAssertNotNil(snapshot.artifacts.primaryURL)
+        XCTAssertTrue(snapshot.statusMessage.contains("Injection failed: Unable to generate keyboard events for injection."))
         XCTAssertNotNil(snapshot.artifacts.failureContextURL)
-        XCTAssertTrue(snapshot.artifacts.failureContextURL?.lastPathComponent.contains("failure-context-") == true)
-        let failureEntry = store.savedEntries
-            .map(\.text)
-            .first { $0.contains("[failure-context]") }
-        XCTAssertNotNil(failureEntry)
-        XCTAssertTrue(failureEntry?.contains("run_id:") == true)
-        XCTAssertTrue(failureEntry?.contains("hotkey_mode: Hold") == true)
-        XCTAssertTrue(failureEntry?.contains("microphone_permission: Authorized") == true)
-        XCTAssertTrue(failureEntry?.contains("injection_strategy_chain:") == true)
-        XCTAssertTrue(failureEntry?.contains("injection_attempts:") == true)
-        XCTAssertTrue(failureEntry?.contains("focused_role:") == true)
-        XCTAssertTrue(failureEntry?.contains("focus_wait_ms:") == true)
-        XCTAssertTrue(failureEntry?.contains("preferred_app_bundle_id:") == true)
     }
 
     func testStopRequestedDuringStartupIsDeferredUntilStartupCompletes() async {
@@ -405,6 +447,92 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(injector.lastRequest?.allowCommandVFallback, true)
     }
 
+    func testAppleEmptyFinalizationUsesLatestPartialFallback() async {
+        let speech = MockSpeechTranscriber()
+        speech.finalizedText = ""
+
+        let whisper = MockWhisperTranscriber()
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        let frontmost = MockFrontmostProvider()
+
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: 10) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest())
+        await Task.yield()
+        speech.onUpdate?("speech from partial", false)
+        coordinator.stopRecording(request: stopRequest())
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertEqual(snapshot.finalTranscriptText, "speech from partial")
+        XCTAssertNotNil(snapshot.artifacts.failureContextURL)
+        XCTAssertTrue(snapshot.statusMessage.contains("Injected transcript"))
+    }
+
+    func testWhisperEmptyFinalizationUsesLatestPartialFallback() async {
+        let speech = MockSpeechTranscriber()
+        let whisper = MockWhisperTranscriber()
+        whisper.streamingEnabled = true
+        whisper.streamingPartialToEmit = WhisperPartialTranscript(stableText: "hello", liveText: "world")
+        whisper.stopStreamingError = WhisperKitTranscriberError.emptyTranscription
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        let frontmost = MockFrontmostProvider()
+
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: 10) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest(backend: .whisper))
+        await Task.yield()
+        coordinator.stopRecording(request: stopRequest(backend: .whisper))
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertEqual(snapshot.finalTranscriptText, "hello world")
+        XCTAssertNotNil(snapshot.artifacts.failureContextURL)
+        XCTAssertTrue(snapshot.statusMessage.contains("Injected transcript"))
+    }
+
     private func eventually(timeout: TimeInterval, condition: @escaping () -> Bool) async {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -465,6 +593,9 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
     var qualityPreset: DictationQualityPreset = .fast
     var onRuntimeStatusChange: ((WhisperRuntimeStatus) -> Void)?
     var finalizedText = ""
+    var streamingPartialToEmit: WhisperPartialTranscript?
+    var stopStreamingError: Error?
+    var transcribeError: Error?
 
     func setQualityPreset(_ preset: DictationQualityPreset) {
         qualityPreset = preset
@@ -476,14 +607,24 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
         .bundled
     }
 
-    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {}
+    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {
+        if let streamingPartialToEmit {
+            onPartial(streamingPartialToEmit)
+        }
+    }
 
     func stopStreamingAndFinalize() async throws -> String {
-        finalizedText
+        if let stopStreamingError {
+            throw stopStreamingError
+        }
+        return finalizedText
     }
 
     func transcribe(audioFileURL: URL) async throws -> String {
-        finalizedText
+        if let transcribeError {
+            throw transcribeError
+        }
+        return finalizedText
     }
 }
 

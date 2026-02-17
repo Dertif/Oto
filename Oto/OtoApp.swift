@@ -54,18 +54,18 @@ final class StatusBarController: NSObject {
     private let state: AppState
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
-    private let advancedSettingsWindowController: AdvancedSettingsWindowController
+    private var advancedSettingsWindowController: AdvancedSettingsWindowController?
 
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
     private var recordingPhase: CGFloat = 0
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
+    private var isPopoverDismissScheduled = false
 
     init(state: AppState) {
         self.state = state
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        self.advancedSettingsWindowController = AdvancedSettingsWindowController(state: state)
         super.init()
         configurePopover()
         configureStatusItem()
@@ -179,16 +179,29 @@ final class StatusBarController: NSObject {
     }
 
     private func dismissPopoverIfNeeded() {
-        guard popover.isShown else {
+        guard popover.isShown, !isPopoverDismissScheduled else {
             return
         }
 
-        popover.performClose(nil)
+        isPopoverDismissScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+            self.isPopoverDismissScheduled = false
+            guard self.popover.isShown else {
+                return
+            }
+            self.popover.performClose(nil)
+        }
     }
 
     private func openAdvancedSettings() {
         dismissPopoverIfNeeded()
-        advancedSettingsWindowController.openWindow()
+        if advancedSettingsWindowController == nil {
+            advancedSettingsWindowController = AdvancedSettingsWindowController(state: state)
+        }
+        advancedSettingsWindowController?.openWindow()
     }
 
     @objc
@@ -198,7 +211,7 @@ final class StatusBarController: NSObject {
         }
 
         if popover.isShown {
-            popover.performClose(sender)
+            dismissPopoverIfNeeded()
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
