@@ -2,6 +2,14 @@ import XCTest
 @testable import Oto
 
 final class AppleFoundationTextRefinerTests: XCTestCase {
+    private actor GeneratorCallTracker {
+        private(set) var wasCalled = false
+
+        func markCalled() {
+            wasCalled = true
+        }
+    }
+
     private func request(mode: TextRefinementMode, text: String = "hello world", backend: STTBackend = .appleSpeech) -> TextRefinementRequest {
         TextRefinementRequest(
             backend: backend,
@@ -12,12 +20,11 @@ final class AppleFoundationTextRefinerTests: XCTestCase {
     }
 
     func testRawModeSkipsGenerator() async {
-        var generatorCalled = false
         let refiner = AppleFoundationTextRefiner(
             availabilityProvider: { TextRefinerAvailabilityInfo(isAvailable: true, label: "Available") },
             generator: { _ in
-                generatorCalled = true
-                return "ignored"
+                XCTFail("Generator should not be called in raw mode.")
+                return ""
             }
         )
 
@@ -26,7 +33,6 @@ final class AppleFoundationTextRefinerTests: XCTestCase {
         XCTAssertEqual(result.outputSource, .raw)
         XCTAssertEqual(result.text, "hello")
         XCTAssertEqual(result.diagnostics.fallbackReason, "refinement_mode_raw")
-        XCTAssertFalse(generatorCalled)
     }
 
     func testEnhancedModeReturnsRawWhenUnavailable() async {
@@ -39,6 +45,59 @@ final class AppleFoundationTextRefinerTests: XCTestCase {
 
         XCTAssertEqual(result.outputSource, .raw)
         XCTAssertEqual(result.diagnostics.fallbackReason, "refiner_unavailable")
+    }
+
+    func testEnhancedModeReturnsModelNotReadyFallbackReason() async {
+        let refiner = AppleFoundationTextRefiner(
+            modelNotReadyRetryCount: 0,
+            availabilityProvider: {
+                TextRefinerAvailabilityInfo(
+                    isAvailable: false,
+                    label: "Unavailable: Model not ready",
+                    reason: .modelNotReady
+                )
+            },
+            generator: { _ in XCTFail("Generator should not be called when model is unavailable."); return "" }
+        )
+
+        let result = await refiner.refine(request: request(mode: .enhanced, text: "hello"))
+
+        XCTAssertEqual(result.outputSource, .raw)
+        XCTAssertEqual(result.diagnostics.fallbackReason, "refiner_model_not_ready")
+    }
+
+    func testEnhancedModeRetriesModelNotReadyThenSucceeds() async {
+        var availabilityCallCount = 0
+        let generatorCallTracker = GeneratorCallTracker()
+        let refiner = AppleFoundationTextRefiner(
+            modelNotReadyRetryCount: 2,
+            modelNotReadyRetryDelaySeconds: 0.0,
+            availabilityProvider: {
+                availabilityCallCount += 1
+                if availabilityCallCount < 3 {
+                    return TextRefinerAvailabilityInfo(
+                        isAvailable: false,
+                        label: "Unavailable: Model not ready",
+                        reason: .modelNotReady
+                    )
+                }
+                return TextRefinerAvailabilityInfo(isAvailable: true, label: "Available")
+            },
+            generator: { _ in
+                await generatorCallTracker.markCalled()
+                return "Hello, world."
+            },
+            sleep: { _ in }
+        )
+
+        let result = await refiner.refine(request: request(mode: .enhanced, text: "hello world"))
+
+        XCTAssertEqual(result.outputSource, .refined)
+        XCTAssertEqual(result.text, "Hello, world.")
+        XCTAssertNil(result.diagnostics.fallbackReason)
+        let wasGeneratorCalled = await generatorCallTracker.wasCalled
+        XCTAssertTrue(wasGeneratorCalled)
+        XCTAssertEqual(availabilityCallCount, 3)
     }
 
     func testEnhancedModeTimeoutFallsBackToRaw() async {
