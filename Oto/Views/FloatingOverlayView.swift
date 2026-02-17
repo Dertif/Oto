@@ -1,37 +1,74 @@
 import SwiftUI
 
+struct FloatingOverlayLayoutMetrics: Equatable {
+    let size: CGSize
+    let pillCenterY: CGFloat
+}
+
 struct FloatingOverlayView: View {
+    private enum OverlayLayout {
+        static let coordinateSpaceName = "FloatingOverlayRoot"
+        static let outerHorizontalPadding: CGFloat = 8
+        static let outerVerticalPadding: CGFloat = 6
+        static let tooltipWidth: CGFloat = 320
+        static let tooltipHeight: CGFloat = 44
+        static let tooltipGap: CGFloat = 8
+        static let fixedWidth: CGFloat = tooltipWidth + (outerHorizontalPadding * 2)
+    }
+
     @ObservedObject var state: AppState
-    var onSizeChange: (CGSize) -> Void
+    var onLayoutChange: (FloatingOverlayLayoutMetrics) -> Void
     var onDragChanged: (CGSize) -> Void
     var onDragEnded: () -> Void
 
     @State private var isHovering = false
+    @State private var isDragging = false
+    @State private var rootSize: CGSize = .zero
+    @State private var pillFrame: CGRect = .zero
 
     var body: some View {
-        VStack(spacing: 8) {
+        Group {
             if shouldShowHoverTip {
-                hoverTip
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                if state.overlayTooltipDirection == .above {
+                    VStack(spacing: OverlayLayout.tooltipGap) {
+                        hoverTip
+                            .frame(width: OverlayLayout.tooltipWidth, height: OverlayLayout.tooltipHeight)
+                        measuredOverlayPill
+                    }
+                    .transition(.opacity)
+                } else {
+                    VStack(spacing: OverlayLayout.tooltipGap) {
+                        measuredOverlayPill
+                        hoverTip
+                            .frame(width: OverlayLayout.tooltipWidth, height: OverlayLayout.tooltipHeight)
+                    }
+                    .transition(.opacity)
+                }
+            } else {
+                measuredOverlayPill
             }
-
-            Button(action: handleTap) {
-                overlayPill
-            }
-            .buttonStyle(.plain)
-            .disabled(state.isProcessing)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, OverlayLayout.outerHorizontalPadding)
+        .padding(.vertical, OverlayLayout.outerVerticalPadding)
+        .frame(width: OverlayLayout.fixedWidth, alignment: .center)
+        .fixedSize()
+        .coordinateSpace(name: OverlayLayout.coordinateSpaceName)
         .background(
             GeometryReader { proxy in
                 Color.clear
-                    .preference(key: OverlaySizePreferenceKey.self, value: proxy.size)
+                    .preference(key: OverlayRootSizePreferenceKey.self, value: proxy.size)
             }
         )
-        .onPreferenceChange(OverlaySizePreferenceKey.self, perform: onSizeChange)
+        .onPreferenceChange(OverlayRootSizePreferenceKey.self) { size in
+            rootSize = size
+            emitLayoutMetricsIfReady()
+        }
+        .onPreferenceChange(OverlayPillFramePreferenceKey.self) { frame in
+            pillFrame = frame
+            emitLayoutMetricsIfReady()
+        }
         .onHover { hovering in
-            guard state.visualState == .idle else {
+            guard state.visualState == .idle, !isDragging else {
                 isHovering = false
                 return
             }
@@ -44,15 +81,7 @@ struct FloatingOverlayView: View {
                 isHovering = false
             }
         }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { value in
-                    onDragChanged(value.translation)
-                }
-                .onEnded { _ in
-                    onDragEnded()
-                }
-        )
+        .simultaneousGesture(overlayDragGesture)
     }
 
     private var shouldShowHoverTip: Bool {
@@ -60,16 +89,47 @@ struct FloatingOverlayView: View {
     }
 
     private var hoverTip: some View {
-        Text("Click or hold fn to start dictating")
-            .font(.system(size: 13, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+        ZStack {
+            Capsule(style: .continuous)
+                .fill(.black)
+            Text("Click or hold fn to start dictating")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .padding(.horizontal, 18)
+        }
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var measuredOverlayPill: some View {
+        overlayPill
+            .contentShape(Rectangle())
+            .onTapGesture(perform: handleTap)
             .background(
-                Capsule(style: .continuous)
-                    .fill(.black)
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(
+                            key: OverlayPillFramePreferenceKey.self,
+                            value: proxy.frame(in: .named(OverlayLayout.coordinateSpaceName))
+                        )
+                }
             )
-            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+    }
+
+    private func emitLayoutMetricsIfReady() {
+        guard rootSize.width > 0, rootSize.height > 0, pillFrame.width > 0, pillFrame.height > 0 else {
+            return
+        }
+        onLayoutChange(
+            FloatingOverlayLayoutMetrics(
+                size: rootSize,
+                pillCenterY: pillFrame.midY
+            )
+        )
     }
 
     @ViewBuilder
@@ -85,7 +145,10 @@ struct FloatingOverlayView: View {
                             .font(.system(size: 12, weight: .regular, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.78))
                     )
-                    .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
             } else {
                 Capsule(style: .continuous)
                     .fill(Color.black.opacity(0.45))
@@ -101,7 +164,10 @@ struct FloatingOverlayView: View {
                         .frame(height: 16)
                         .padding(.horizontal, 12)
                 )
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
 
         case .processing:
             Capsule(style: .continuous)
@@ -118,50 +184,103 @@ struct FloatingOverlayView: View {
                             .scaleEffect(0.8)
                     }
                 )
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
         }
     }
 
     private func handleTap() {
+        guard !isDragging else {
+            return
+        }
         guard !state.isProcessing else {
             return
         }
         state.toggleRecording()
     }
+
+    private var overlayDragGesture: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { value in
+                let distance = hypot(value.translation.width, value.translation.height)
+                if distance > 1.5 {
+                    isDragging = true
+                    onDragChanged(value.translation)
+                }
+            }
+            .onEnded { _ in
+                if isDragging {
+                    onDragEnded()
+                }
+                isDragging = false
+            }
+    }
 }
 
 private struct AudioWaveformView: View {
     let level: Float
+    @State private var levelHistory: [CGFloat] = Array(repeating: 0, count: 11)
+
+    private let barProfile: [CGFloat] = [0.28, 0.42, 0.58, 0.74, 0.9, 1.0, 0.9, 0.74, 0.58, 0.42, 0.28]
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate * 7.0
-            HStack(spacing: 2) {
-                ForEach(0 ..< 11, id: \.self) { index in
-                    Capsule(style: .continuous)
-                        .fill(.white)
-                        .frame(
-                            width: 2,
-                            height: barHeight(index: index, phase: phase)
-                        )
-                }
+        HStack(spacing: 2) {
+            ForEach(0 ..< barProfile.count, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(.white)
+                    .frame(width: 2, height: barHeight(index: index))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            levelHistory = Array(repeating: normalizedLevel, count: barProfile.count)
+        }
+        .onChange(of: level) { _, newLevel in
+            push(level: max(0, min(1, CGFloat(newLevel))))
         }
     }
 
-    private func barHeight(index: Int, phase: TimeInterval) -> CGFloat {
-        let normalizedLevel = max(0.06, min(1, CGFloat(level)))
-        let modulation = abs(sin(phase + (Double(index) * 0.52)))
-        let shaped = (0.2 + (0.8 * modulation)) * normalizedLevel
-        return 4 + (shaped * 12)
+    private var normalizedLevel: CGFloat {
+        max(0, min(1, CGFloat(level)))
+    }
+
+    private func push(level: CGFloat) {
+        var next = levelHistory
+        next.append(level)
+        while next.count > barProfile.count {
+            next.removeFirst()
+        }
+        withAnimation(.easeOut(duration: 0.08)) {
+            levelHistory = next
+        }
+    }
+
+    private func barHeight(index: Int) -> CGFloat {
+        let activity = levelHistory[index]
+        if activity <= 0.002 {
+            return 5
+        }
+
+        let boosted = pow(activity, 0.62)
+        let profile = barProfile[index]
+        return 4 + (boosted * (7 + (profile * 11)))
     }
 }
 
-private struct OverlaySizePreferenceKey: PreferenceKey {
+private struct OverlayRootSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGSize = .zero
 
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
+private struct OverlayPillFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
     }
 }

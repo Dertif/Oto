@@ -134,11 +134,20 @@ final class StatusBarController: NSObject {
                 self?.floatingOverlayWindowController?.resetToDefaultPosition()
             }
             .store(in: &cancellables)
+
+        state.$overlayPlacement
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] placement in
+                self?.floatingOverlayWindowController?.applyPlacement(placement)
+            }
+            .store(in: &cancellables)
     }
 
     private func configureFloatingOverlay() {
         let controller = FloatingOverlayWindowController(state: state)
         floatingOverlayWindowController = controller
+        controller.applyPlacement(state.overlayPlacement)
         setOverlayVisibility(state.overlayEnabled)
     }
 

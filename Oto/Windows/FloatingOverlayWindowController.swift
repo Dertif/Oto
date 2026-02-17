@@ -22,9 +22,15 @@ final class FloatingOverlayWindowController: NSWindowController {
     private var dragStartOrigin: CGPoint?
     private var windowMoveObserver: NSObjectProtocol?
     private var currentOverlaySize = NSSize(width: 120, height: 46)
+    private var currentLayoutMetrics = FloatingOverlayLayoutMetrics(
+        size: CGSize(width: 120, height: 46),
+        pillCenterY: 23
+    )
+    private var placement: OverlayPlacement
 
     init(state: AppState) {
         self.state = state
+        placement = state.overlayPlacement
 
         let panel = OverlayPanel(
             contentRect: NSRect(origin: .zero, size: NSSize(width: 120, height: 46)),
@@ -35,7 +41,7 @@ final class FloatingOverlayWindowController: NSWindowController {
 
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
@@ -66,11 +72,11 @@ final class FloatingOverlayWindowController: NSWindowController {
 
         let rootView = FloatingOverlayView(
             state: state,
-            onSizeChange: { [weak panel, weak self] size in
+            onLayoutChange: { [weak panel, weak self] metrics in
                 guard let panel, let self else {
                     return
                 }
-                self.updateOverlaySize(size, panel: panel)
+                self.updateOverlayLayout(metrics, panel: panel)
             },
             onDragChanged: { [weak panel, weak self] translation in
                 guard let panel, let self else {
@@ -99,11 +105,24 @@ final class FloatingOverlayWindowController: NSWindowController {
             positionOverlay(panel: panel, forceDefault: false)
             hasPositionedWindow = true
         }
+        refreshTooltipDirection(for: panel)
         panel.orderFrontRegardless()
     }
 
     func hideOverlay() {
         window?.orderOut(nil)
+    }
+
+    func applyPlacement(_ placement: OverlayPlacement) {
+        self.placement = placement
+        guard let panel = window as? OverlayPanel else {
+            return
+        }
+
+        positionOverlay(panel: panel, forceDefault: false)
+        persistPosition(for: panel)
+        hasPositionedWindow = true
+        OtoLogger.log("Floating overlay placement set to \(placement.rawValue)", category: .flow, level: .info)
     }
 
     func resetToDefaultPosition() {
@@ -134,6 +153,7 @@ final class FloatingOverlayWindowController: NSWindowController {
     private func handleDragChanged(translation: CGSize, panel: NSPanel) {
         if dragStartOrigin == nil {
             dragStartOrigin = panel.frame.origin
+            placement = .custom
         }
         guard let dragStartOrigin else {
             return
@@ -144,34 +164,60 @@ final class FloatingOverlayWindowController: NSWindowController {
             y: dragStartOrigin.y - translation.height
         )
         panel.setFrameOrigin(clampedOrigin(for: proposedOrigin, panel: panel))
+        refreshTooltipDirection(for: panel)
     }
 
     private func handleDragEnded(panel: NSPanel) {
         dragStartOrigin = nil
         persistPosition(for: panel)
+        if state.overlayPlacement != .custom {
+            state.overlayPlacement = .custom
+        }
         OtoLogger.log("Floating overlay moved to \(panel.frame.origin.debugDescription)", category: .flow, level: .debug)
     }
 
-    private func updateOverlaySize(_ size: CGSize, panel: NSPanel) {
-        guard size.width > 0, size.height > 0 else {
+    private func updateOverlayLayout(_ metrics: FloatingOverlayLayoutMetrics, panel: NSPanel) {
+        guard metrics.size.width > 0, metrics.size.height > 0 else {
+            return
+        }
+        guard dragStartOrigin == nil else {
             return
         }
 
-        let targetSize = NSSize(width: ceil(size.width), height: ceil(size.height))
-        if abs(targetSize.width - currentOverlaySize.width) < 0.5 && abs(targetSize.height - currentOverlaySize.height) < 0.5 {
+        let targetSize = NSSize(width: ceil(metrics.size.width), height: ceil(metrics.size.height))
+        let targetPillCenterY = metrics.pillCenterY
+        let sizeChanged = abs(targetSize.width - currentOverlaySize.width) >= 0.5 || abs(targetSize.height - currentOverlaySize.height) >= 0.5
+        let pillAnchorChanged = abs(targetPillCenterY - currentLayoutMetrics.pillCenterY) >= 0.5
+
+        if !sizeChanged, !pillAnchorChanged {
             return
         }
-
-        currentOverlaySize = targetSize
 
         let currentFrame = panel.frame
+        let currentPillGlobalY = currentFrame.minY + currentLayoutMetrics.pillCenterY
+        let screen = panel.screen ?? screenContaining(point: currentFrame.center) ?? NSScreen.main ?? NSScreen.screens.first
+        let anchorCenterX = screen?.frame.midX ?? currentFrame.midX
+
         let updatedFrame = NSRect(
-            x: currentFrame.midX - (targetSize.width / 2),
-            y: currentFrame.minY,
+            x: anchorCenterX - (targetSize.width / 2),
+            y: currentPillGlobalY - targetPillCenterY,
             width: targetSize.width,
             height: targetSize.height
         )
-        panel.setFrame(clampedFrame(updatedFrame), display: true)
+        let clamped = clampedFrame(updatedFrame)
+        panel.setFrame(clamped, display: true)
+
+        if sizeChanged || pillAnchorChanged {
+            OtoLogger.log(
+                "Overlay layout update size=\(targetSize.width)x\(targetSize.height) frame=\(clamped.origin.debugDescription) screenMidX=\(anchorCenterX)",
+                category: .flow,
+                level: .debug
+            )
+        }
+
+        currentOverlaySize = targetSize
+        currentLayoutMetrics = FloatingOverlayLayoutMetrics(size: targetSize, pillCenterY: targetPillCenterY)
+        refreshTooltipDirection(for: panel)
     }
 
     private func positionOverlay(panel: NSPanel, forceDefault: Bool) {
@@ -180,25 +226,47 @@ final class FloatingOverlayWindowController: NSWindowController {
             return
         }
 
-        let frame: NSRect
-        if !forceDefault, let restoredFrame = restoredFrame(for: panel, screen: targetScreen) {
-            frame = restoredFrame
+        let targetFrame: NSRect
+        if !forceDefault, placement == .custom, let restoredFrame = restoredFrame(for: panel, screen: targetScreen) {
+            targetFrame = restoredFrame
         } else {
-            frame = defaultFrame(for: panel, screen: targetScreen)
+            targetFrame = frame(for: panel, placement: forceDefault ? .topCenter : placement, screen: targetScreen)
         }
 
-        panel.setFrame(clampedFrame(frame), display: true)
+        panel.setFrame(clampedFrame(targetFrame), display: true)
+        refreshTooltipDirection(for: panel)
     }
 
-    private func defaultFrame(for panel: NSPanel, screen: NSScreen) -> NSRect {
+    private func frame(for panel: NSPanel, placement: OverlayPlacement, screen: NSScreen) -> NSRect {
+        frame(for: panel.frame.size, placement: placement, screen: screen)
+    }
+
+    private func frame(for size: NSSize, placement: OverlayPlacement, screen: NSScreen) -> NSRect {
         let visibleFrame = screen.visibleFrame
+        let fullFrame = screen.frame
         let topInset: CGFloat = 20
-        return NSRect(
-            x: visibleFrame.midX - (panel.frame.width / 2),
-            y: visibleFrame.maxY - panel.frame.height - topInset,
-            width: panel.frame.width,
-            height: panel.frame.height
-        )
+        let sideInset: CGFloat = 16
+        let bottomInset: CGFloat = 20
+
+        let originX: CGFloat
+        switch placement {
+        case .topLeft, .bottomLeft:
+            originX = visibleFrame.minX + sideInset
+        case .topCenter, .bottomCenter, .custom:
+            originX = fullFrame.midX - (size.width / 2)
+        case .topRight, .bottomRight:
+            originX = visibleFrame.maxX - size.width - sideInset
+        }
+
+        let originY: CGFloat
+        switch placement {
+        case .topLeft, .topCenter, .topRight, .custom:
+            originY = visibleFrame.maxY - size.height - topInset
+        case .bottomLeft, .bottomCenter, .bottomRight:
+            originY = visibleFrame.minY + bottomInset
+        }
+
+        return NSRect(x: originX, y: originY, width: size.width, height: size.height)
     }
 
     private func restoredFrame(for panel: NSPanel, screen: NSScreen) -> NSRect? {
@@ -296,14 +364,33 @@ final class FloatingOverlayWindowController: NSWindowController {
         }
 
         let visible = screen.visibleFrame
-        let minX = visible.minX
-        let maxX = visible.maxX - frame.width
+        let fullFrame = screen.frame
+        let minX = fullFrame.minX
+        let maxX = fullFrame.maxX - frame.width
         let minY = visible.minY
         let maxY = visible.maxY - frame.height
 
         let clampedX = min(max(frame.origin.x, minX), maxX)
         let clampedY = min(max(frame.origin.y, minY), maxY)
         return NSRect(origin: CGPoint(x: clampedX, y: clampedY), size: frame.size)
+    }
+
+    private func refreshTooltipDirection(for panel: NSPanel) {
+        let candidateScreen = panel.screen ?? screenContaining(point: panel.frame.center) ?? NSScreen.main ?? NSScreen.screens.first
+        guard let screen = candidateScreen else {
+            return
+        }
+
+        let visible = screen.visibleFrame
+        guard visible.height > 0 else {
+            return
+        }
+
+        let normalizedCenterY = (panel.frame.midY - visible.minY) / visible.height
+        let direction: OverlayTooltipDirection = normalizedCenterY > 0.62 ? .below : .above
+        if state.overlayTooltipDirection != direction {
+            state.overlayTooltipDirection = direction
+        }
     }
 }
 

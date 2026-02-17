@@ -4,6 +4,42 @@ import Foundation
 import Speech
 import SwiftUI
 
+enum OverlayPlacement: String, CaseIterable, Identifiable {
+    case topLeft
+    case topCenter
+    case topRight
+    case bottomLeft
+    case bottomCenter
+    case bottomRight
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .topLeft:
+            return "Top Left"
+        case .topCenter:
+            return "Top Center"
+        case .topRight:
+            return "Top Right"
+        case .bottomLeft:
+            return "Bottom Left"
+        case .bottomCenter:
+            return "Bottom Center"
+        case .bottomRight:
+            return "Bottom Right"
+        case .custom:
+            return "Custom (Drag)"
+        }
+    }
+}
+
+enum OverlayTooltipDirection {
+    case above
+    case below
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var selectedBackend: STTBackend = .appleSpeech {
@@ -38,6 +74,7 @@ final class AppState: ObservableObject {
     }
     @AppStorage("oto.allowCommandVFallback") private var allowCommandVFallbackStorage = true
     @AppStorage("oto.overlayEnabled") private var overlayEnabledStorage = true
+    @AppStorage("oto.overlayPlacement") private var overlayPlacementStorage = OverlayPlacement.topCenter.rawValue
 
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
@@ -75,6 +112,15 @@ final class AppState: ObservableObject {
             overlayEnabledStorage = overlayEnabled
         }
     }
+    @Published var overlayPlacement: OverlayPlacement = .topCenter {
+        didSet {
+            guard overlayPlacement != oldValue else {
+                return
+            }
+            overlayPlacementStorage = overlayPlacement.rawValue
+        }
+    }
+    @Published var overlayTooltipDirection: OverlayTooltipDirection = .below
     @Published private(set) var overlayResetToken = 0
     @Published var allowCommandVFallback = true {
         didSet {
@@ -156,6 +202,9 @@ final class AppState: ObservableObject {
         refinementMode = persistedRefinementMode
         allowCommandVFallback = allowCommandVFallbackStorage
         overlayEnabled = overlayEnabledStorage
+        let persistedOverlayPlacement = OverlayPlacement(rawValue: overlayPlacementStorage) ?? .topCenter
+        overlayPlacementStorage = persistedOverlayPlacement.rawValue
+        overlayPlacement = persistedOverlayPlacement
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()
@@ -255,6 +304,7 @@ final class AppState: ObservableObject {
     }
 
     func resetOverlayPosition() {
+        overlayPlacement = .topCenter
         overlayResetToken &+= 1
     }
 

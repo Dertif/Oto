@@ -39,6 +39,11 @@ final class RecordingFlowCoordinator {
         case file
     }
 
+    private enum ProcessingWatchdog {
+        static let refinementTimeoutSeconds: TimeInterval = 7.0
+        static let injectionTimeoutSeconds: TimeInterval = 4.0
+    }
+
     private let speechTranscriber: SpeechTranscribing
     private let whisperTranscriber: WhisperTranscribing
     private let audioRecorder: AudioRecording
@@ -442,11 +447,24 @@ final class RecordingFlowCoordinator {
         logFlow("Transcription succeeded backend=\(backend.rawValue), charCount=\(rawText.count)")
         transition(.transcriptionSucceeded(text: rawText))
 
-        let refinementResult = await applyRefinement(
-            rawText: rawText,
-            backend: backend,
-            mode: refinementMode
-        )
+        let refinementResult = await runWithTimeout(seconds: ProcessingWatchdog.refinementTimeoutSeconds) {
+            await self.applyRefinement(
+                rawText: rawText,
+                backend: backend,
+                mode: refinementMode
+            )
+        } ?? {
+            self.logFlow(
+                "Refinement watchdog timed out after \(String(format: "%.1f", ProcessingWatchdog.refinementTimeoutSeconds))s; falling back to raw",
+                level: .error
+            )
+            return TextRefinementResult.raw(
+                text: rawText,
+                mode: refinementMode,
+                availability: self.textRefiner.availabilityLabel,
+                fallbackReason: "refinement_watchdog_timeout"
+            )
+        }()
         latestRefinementDiagnostics = refinementResult.diagnostics
         setRefinementDiagnostics(refinementResult.diagnostics)
         setOutputSource(refinementResult.outputSource)
@@ -586,11 +604,19 @@ final class RecordingFlowCoordinator {
         let preferredApp = frontmostAppProvider.frontmostApplication
         let preferredBundleID = preferredApp?.bundleIdentifier ?? "unknown"
         OtoLogger.log("Injecting transcript into app=\(preferredBundleID)", category: .injection, level: .info)
-        let injectionReport = await textInjector.inject(request: TextInjectionRequest(
-            text: finalText,
-            preferredApplication: preferredApp,
-            allowCommandVFallback: allowCommandVFallback
-        ))
+        let injectionReport = await runWithTimeout(seconds: ProcessingWatchdog.injectionTimeoutSeconds) {
+            await self.textInjector.inject(request: TextInjectionRequest(
+                text: finalText,
+                preferredApplication: preferredApp,
+                allowCommandVFallback: allowCommandVFallback
+            ))
+        } ?? {
+            self.logFlow(
+                "Injection watchdog timed out after \(String(format: "%.1f", ProcessingWatchdog.injectionTimeoutSeconds))s; falling back to skipped injection",
+                level: .error
+            )
+            return self.injectionTimeoutFallbackReport(preferredBundleID: preferredBundleID)
+        }()
         latestInjectionDiagnostics = injectionReport.diagnostics
 
         if let outcome = injectionReport.outcome {
@@ -974,13 +1000,61 @@ final class RecordingFlowCoordinator {
         OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(message)", category: .flow, level: level)
     }
 
+    private func runWithTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async -> T
+    ) async -> T? {
+        guard seconds > 0 else {
+            return await operation()
+        }
+
+        let timeoutNanos = UInt64(seconds * 1_000_000_000)
+        return await withTaskGroup(of: T?.self) { group in
+            group.addTask {
+                await operation()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanos)
+                return nil
+            }
+
+            let firstResult = await group.next() ?? nil
+            group.cancelAll()
+            return firstResult
+        }
+    }
+
+    private func injectionTimeoutFallbackReport(preferredBundleID: String) -> TextInjectionReport {
+        TextInjectionReport.failure(
+            .focusStabilizationTimedOut,
+            diagnostics: TextInjectionDiagnostics(
+                strategyChain: InjectionStrategy.allCases,
+                attempts: [],
+                finalStrategy: nil,
+                focusedRole: nil,
+                focusedSubrole: nil,
+                focusedProcessID: nil,
+                focusWaitMilliseconds: Int(ProcessingWatchdog.injectionTimeoutSeconds * 1_000),
+                preferredAppBundleID: preferredBundleID,
+                preferredAppActivated: false,
+                frontmostAppBundleID: frontmostAppProvider.frontmostApplication?.bundleIdentifier
+            )
+        )
+    }
+
     private func publishRecordingAudioLevel(_ level: Float) {
         guard snapshot.phase == .listening else {
             return
         }
+
         let clamped = min(1, max(0, level))
-        let smoothed = (snapshot.recordingAudioLevel * 0.65) + (clamped * 0.35)
-        transition(.recordingAudioLevelUpdated(level: smoothed))
+        let noiseGate: Float = 0.05
+        let gated = clamped <= noiseGate ? 0 : (clamped - noiseGate) / (1 - noiseGate)
+        let emphasized = sqrt(gated)
+        let alpha: Float = emphasized > snapshot.recordingAudioLevel ? 0.62 : 0.28
+        let smoothed = (snapshot.recordingAudioLevel * (1 - alpha)) + (emphasized * alpha)
+        let settled = smoothed < 0.01 ? 0 : smoothed
+        transition(.recordingAudioLevelUpdated(level: settled))
     }
 
     private func lastPartialTranscriptFallback() -> String? {

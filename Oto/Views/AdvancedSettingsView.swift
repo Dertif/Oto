@@ -182,6 +182,19 @@ struct AdvancedSettingsView: View {
             ) {
                 Toggle("Show Floating Overlay", isOn: $state.overlayEnabled)
 
+                InlineControlRow(label: "Position") {
+                    Picker("Position", selection: $state.overlayPlacement) {
+                        ForEach(OverlayPlacement.allCases) { placement in
+                            Text(placement.label).tag(placement)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .controlSize(.regular)
+                    .disabled(!state.overlayEnabled)
+                } helpText: {
+                    "Dragging switches this to Custom."
+                }
+
                 Button("Reset Overlay Position") {
                     state.resetOverlayPosition()
                 }
