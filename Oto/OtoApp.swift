@@ -55,6 +55,7 @@ final class StatusBarController: NSObject {
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private var advancedSettingsWindowController: AdvancedSettingsWindowController?
+    private var floatingOverlayWindowController: FloatingOverlayWindowController?
 
     private var cancellables = Set<AnyCancellable>()
     private var recordingTimer: Timer?
@@ -69,6 +70,7 @@ final class StatusBarController: NSObject {
         super.init()
         configurePopover()
         configureStatusItem()
+        configureFloatingOverlay()
         configurePopoverDismissMonitoring()
         observeState()
         DispatchQueue.main.async { [weak self] in
@@ -117,6 +119,38 @@ final class StatusBarController: NSObject {
                 self?.applyIcon(for: newState)
             }
             .store(in: &cancellables)
+
+        state.$overlayEnabled
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isEnabled in
+                self?.setOverlayVisibility(isEnabled)
+            }
+            .store(in: &cancellables)
+
+        state.$overlayResetToken
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.floatingOverlayWindowController?.resetToDefaultPosition()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func configureFloatingOverlay() {
+        let controller = FloatingOverlayWindowController(state: state)
+        floatingOverlayWindowController = controller
+        setOverlayVisibility(state.overlayEnabled)
+    }
+
+    private func setOverlayVisibility(_ isVisible: Bool) {
+        guard let floatingOverlayWindowController else {
+            return
+        }
+        if isVisible {
+            floatingOverlayWindowController.showOverlay()
+        } else {
+            floatingOverlayWindowController.hideOverlay()
+        }
     }
 
     private func configurePopoverDismissMonitoring() {

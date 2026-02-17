@@ -182,6 +182,14 @@ final class RecordingFlowCoordinator {
                             }
                             self.transition(.transcriptionProgress(stable: normalizedText, live: ""))
                         },
+                        onAudioLevel: { [weak self] level in
+                            guard let self else {
+                                return
+                            }
+                            Task { @MainActor [weak self] in
+                                self?.publishRecordingAudioLevel(level)
+                            }
+                        },
                         onError: { [weak self] message in
                             guard let self else {
                                 return
@@ -899,20 +907,30 @@ final class RecordingFlowCoordinator {
         activeWhisperCaptureMode = .streaming
 
         do {
-            try await whisperTranscriber.startStreaming { [weak self] partial in
-                guard let self else {
-                    return
-                }
-                Task { @MainActor [weak self] in
+            try await whisperTranscriber.startStreaming(
+                onPartial: { [weak self] partial in
                     guard let self else {
                         return
                     }
-                    self.transition(.transcriptionProgress(stable: partial.stableText, live: partial.liveText))
-                    if !partial.combinedText.isEmpty {
-                        self.latencyTracker.markFirstPartial(at: self.nowProvider())
+                    Task { @MainActor [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        self.transition(.transcriptionProgress(stable: partial.stableText, live: partial.liveText))
+                        if !partial.combinedText.isEmpty {
+                            self.latencyTracker.markFirstPartial(at: self.nowProvider())
+                        }
+                    }
+                },
+                onAudioLevel: { [weak self] level in
+                    guard let self else {
+                        return
+                    }
+                    Task { @MainActor [weak self] in
+                        self?.publishRecordingAudioLevel(level)
                     }
                 }
-            }
+            )
         } catch {
             latencyTracker.reset()
             logFlow("Whisper streaming unavailable, falling back to file mode", level: .info)
@@ -921,7 +939,14 @@ final class RecordingFlowCoordinator {
     }
 
     private func startWhisperFileCapture() throws {
-        _ = try audioRecorder.startRecording()
+        _ = try audioRecorder.startRecording { [weak self] level in
+            guard let self else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.publishRecordingAudioLevel(level)
+            }
+        }
         latencyTracker.beginRun(usingStreaming: false, at: nowProvider())
         activeWhisperCaptureMode = .file
     }
@@ -947,6 +972,15 @@ final class RecordingFlowCoordinator {
 
     private func logFlow(_ message: String, level: OtoLogLevel = .info) {
         OtoLogger.log("[run:\(currentRunID ?? "Unknown")] \(message)", category: .flow, level: level)
+    }
+
+    private func publishRecordingAudioLevel(_ level: Float) {
+        guard snapshot.phase == .listening else {
+            return
+        }
+        let clamped = min(1, max(0, level))
+        let smoothed = (snapshot.recordingAudioLevel * 0.65) + (clamped * 0.35)
+        transition(.recordingAudioLevelUpdated(level: smoothed))
     }
 
     private func lastPartialTranscriptFallback() -> String? {

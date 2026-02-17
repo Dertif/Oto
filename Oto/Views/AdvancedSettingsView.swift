@@ -177,6 +177,23 @@ struct AdvancedSettingsView: View {
             }
 
             SettingsCard(
+                title: "Floating Overlay",
+                subtitle: "Always-on recorder control shown outside fullscreen apps."
+            ) {
+                Toggle("Show Floating Overlay", isOn: $state.overlayEnabled)
+
+                Button("Reset Overlay Position") {
+                    state.resetOverlayPosition()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!state.overlayEnabled)
+
+                Text("Global paste shortcut: Ctrl + Cmd + V")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            SettingsCard(
                 title: "System Access",
                 subtitle: "Permissions required for dictation and injection."
             ) {

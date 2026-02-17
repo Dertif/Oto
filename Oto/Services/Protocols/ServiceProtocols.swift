@@ -7,6 +7,7 @@ import Speech
 protocol SpeechTranscribing: AnyObject {
     func start(
         onUpdate: @escaping (String, Bool) -> Void,
+        onAudioLevel: @escaping (Float) -> Void,
         onError: @escaping (String) -> Void
     ) async throws
     func stop()
@@ -24,13 +25,16 @@ protocol WhisperTranscribing: AnyObject {
     func setQualityPreset(_ preset: DictationQualityPreset)
     func prepareForLaunch() async
     @discardableResult func refreshModelStatus() -> WhisperModelStatus
-    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws
+    func startStreaming(
+        onPartial: @escaping (WhisperPartialTranscript) -> Void,
+        onAudioLevel: @escaping (Float) -> Void
+    ) async throws
     func stopStreamingAndFinalize() async throws -> String
     func transcribe(audioFileURL: URL) async throws -> String
 }
 
 protocol AudioRecording: AnyObject {
-    func startRecording() throws -> URL
+    func startRecording(onAudioLevel: @escaping (Float) -> Void) throws -> URL
     @discardableResult func stopRecording() -> URL?
 }
 
@@ -76,4 +80,25 @@ protocol RefinementLatencyRecording: AnyObject {
     func record(_ metrics: RefinementLatencyMetrics)
     func summary() -> String
     func aggregates() -> [RefinementLatencyAggregate]
+}
+
+extension SpeechTranscribing {
+    func start(
+        onUpdate: @escaping (String, Bool) -> Void,
+        onError: @escaping (String) -> Void
+    ) async throws {
+        try await start(onUpdate: onUpdate, onAudioLevel: { _ in }, onError: onError)
+    }
+}
+
+extension WhisperTranscribing {
+    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {
+        try await startStreaming(onPartial: onPartial, onAudioLevel: { _ in })
+    }
+}
+
+extension AudioRecording {
+    func startRecording() throws -> URL {
+        try startRecording(onAudioLevel: { _ in })
+    }
 }

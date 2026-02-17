@@ -162,6 +162,52 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(metricsRecorder.recordedMetrics.first?.backend, .whisper)
     }
 
+    func testRecordingAudioLevelPublishesDuringListeningAndResetsOnStop() async {
+        let speech = MockSpeechTranscriber()
+        speech.finalizedText = "hello world"
+        speech.audioLevelToEmitOnStart = 0.9
+
+        let whisper = MockWhisperTranscriber()
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        let frontmost = MockFrontmostProvider()
+
+        var snapshot = FlowSnapshot.initial
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: LatencyMetricsRecorder(),
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: 10) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest())
+        await Task.yield()
+
+        await eventually(timeout: 1.0) {
+            snapshot.recordingAudioLevel > 0.1
+        }
+        XCTAssertGreaterThan(snapshot.recordingAudioLevel, 0.1)
+
+        coordinator.stopRecording(request: stopRequest())
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertEqual(snapshot.recordingAudioLevel, 0, accuracy: 0.001)
+    }
+
     func testShortCaptureTransitionsToFailedAndAllowsRetry() async {
         let speech = MockSpeechTranscriber()
         let whisper = MockWhisperTranscriber()
@@ -550,13 +596,21 @@ private final class MockSpeechTranscriber: SpeechTranscribing {
     var finalizedText = ""
     var onUpdate: ((String, Bool) -> Void)?
     var onError: ((String) -> Void)?
+    var audioLevelToEmitOnStart: Float?
     var waitForStartSignal = false
     private var startContinuation: CheckedContinuation<Void, Never>?
     var stopAndFinalizeCallCount = 0
 
-    func start(onUpdate: @escaping (String, Bool) -> Void, onError: @escaping (String) -> Void) async throws {
+    func start(
+        onUpdate: @escaping (String, Bool) -> Void,
+        onAudioLevel: @escaping (Float) -> Void,
+        onError: @escaping (String) -> Void
+    ) async throws {
         self.onUpdate = onUpdate
         self.onError = onError
+        if let audioLevelToEmitOnStart {
+            onAudioLevel(audioLevelToEmitOnStart)
+        }
         if waitForStartSignal {
             await withCheckedContinuation { continuation in
                 startContinuation = continuation
@@ -607,10 +661,14 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
         .bundled
     }
 
-    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {
+    func startStreaming(
+        onPartial: @escaping (WhisperPartialTranscript) -> Void,
+        onAudioLevel: @escaping (Float) -> Void
+    ) async throws {
         if let streamingPartialToEmit {
             onPartial(streamingPartialToEmit)
         }
+        onAudioLevel(0.45)
     }
 
     func stopStreamingAndFinalize() async throws -> String {
@@ -629,8 +687,9 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
 }
 
 private final class MockAudioRecorder: AudioRecording {
-    func startRecording() throws -> URL {
-        URL(fileURLWithPath: "/tmp/mock.wav")
+    func startRecording(onAudioLevel: @escaping (Float) -> Void) throws -> URL {
+        onAudioLevel(0.4)
+        return URL(fileURLWithPath: "/tmp/mock.wav")
     }
 
     func stopRecording() -> URL? {

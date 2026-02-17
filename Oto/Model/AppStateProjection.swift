@@ -5,6 +5,7 @@ struct AppUIProjection: Equatable {
     let isRecording: Bool
     let isProcessing: Bool
     let visualState: RecorderVisualState
+    let recordingAudioLevel: Float
     let statusMessage: String
     let transcriptStableText: String
     let transcriptLiveText: String
@@ -59,6 +60,7 @@ enum AppStateMapper {
             isRecording: isRecording,
             isProcessing: isProcessing,
             visualState: visualState,
+            recordingAudioLevel: snapshot.recordingAudioLevel,
             statusMessage: snapshot.statusMessage,
             transcriptStableText: snapshot.transcriptStableText,
             transcriptLiveText: snapshot.transcriptLiveText,

@@ -15,6 +15,7 @@ struct FlowSnapshot: Equatable {
     var runID: String?
     var activeBackend: STTBackend?
     var statusMessage: String = "Ready"
+    var recordingAudioLevel: Float = 0
     var transcriptStableText: String = ""
     var transcriptLiveText: String = ""
     var rawTranscriptText: String = ""

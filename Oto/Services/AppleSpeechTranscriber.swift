@@ -42,6 +42,7 @@ final class AppleSpeechTranscriber {
 
     func start(
         onUpdate: @escaping (String, Bool) -> Void,
+        onAudioLevel: @escaping (Float) -> Void,
         onError: @escaping (String) -> Void
     ) async throws {
         guard let recognizer, recognizer.isAvailable else {
@@ -110,6 +111,7 @@ final class AppleSpeechTranscriber {
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
+            onAudioLevel(Self.normalizedAudioLevel(from: buffer))
         }
 
         audioEngine.prepare()
@@ -209,5 +211,36 @@ final class AppleSpeechTranscriber {
                 continuation.resume(returning: status)
             }
         }
+    }
+
+    private static func normalizedAudioLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        guard
+            buffer.frameLength > 0,
+            let channelData = buffer.floatChannelData
+        else {
+            return 0
+        }
+
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = max(1, Int(buffer.format.channelCount))
+        var sumSquares: Float = 0
+
+        for channel in 0 ..< channelCount {
+            let samples = channelData[channel]
+            for index in 0 ..< frameCount {
+                let sample = samples[index]
+                sumSquares += sample * sample
+            }
+        }
+
+        let meanSquare = sumSquares / Float(frameCount * channelCount)
+        guard meanSquare > 0 else {
+            return 0
+        }
+
+        let rms = sqrt(meanSquare)
+        let db = 20 * log10(rms)
+        let normalized = (db + 52) / 52
+        return min(1, max(0, normalized))
     }
 }

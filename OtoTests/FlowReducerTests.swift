@@ -72,4 +72,35 @@ final class FlowReducerTests: XCTestCase {
 
         XCTAssertNotNil(captured)
     }
+
+    func testRecordingAudioLevelUpdatesDuringListening() {
+        var snapshot = FlowSnapshot.initial
+        snapshot = FlowReducer.reduce(
+            snapshot: snapshot,
+            event: .startRequested(backend: .appleSpeech, message: "Listening")
+        )
+
+        snapshot = FlowReducer.reduce(
+            snapshot: snapshot,
+            event: .recordingAudioLevelUpdated(level: 0.8)
+        )
+
+        XCTAssertEqual(snapshot.recordingAudioLevel, 0.8, accuracy: 0.001)
+    }
+
+    func testStopRequestedResetsRecordingAudioLevel() {
+        var snapshot = FlowSnapshot.initial
+        snapshot = FlowReducer.reduce(
+            snapshot: snapshot,
+            event: .startRequested(backend: .appleSpeech, message: "Listening")
+        )
+        snapshot = FlowReducer.reduce(
+            snapshot: snapshot,
+            event: .recordingAudioLevelUpdated(level: 0.7)
+        )
+
+        snapshot = FlowReducer.reduce(snapshot: snapshot, event: .stopRequested(message: "Transcribing"))
+
+        XCTAssertEqual(snapshot.recordingAudioLevel, 0, accuracy: 0.001)
+    }
 }

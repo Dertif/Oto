@@ -3,6 +3,7 @@ import Foundation
 enum FlowEvent: Equatable {
     case startRequested(backend: STTBackend, message: String)
     case stopRequested(message: String)
+    case recordingAudioLevelUpdated(level: Float)
     case transcriptionProgress(stable: String, live: String)
     case captureTooShort(message: String)
     case captureFailed(message: String)

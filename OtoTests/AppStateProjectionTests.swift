@@ -68,4 +68,14 @@ final class AppStateProjectionTests: XCTestCase {
         XCTAssertFalse(projection.isRecording)
         XCTAssertEqual(projection.visualState, .processing)
     }
+
+    func testProjectionIncludesRecordingAudioLevel() {
+        var snapshot = FlowSnapshot.initial
+        snapshot.phase = .listening
+        snapshot.recordingAudioLevel = 0.64
+
+        let projection = AppStateMapper.map(snapshot: snapshot)
+
+        XCTAssertEqual(projection.recordingAudioLevel, 0.64, accuracy: 0.001)
+    }
 }

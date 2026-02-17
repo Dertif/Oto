@@ -231,7 +231,13 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
 private final class RefinementMockSpeechTranscriber: SpeechTranscribing {
     var finalizedText = ""
 
-    func start(onUpdate: @escaping (String, Bool) -> Void, onError: @escaping (String) -> Void) async throws {}
+    func start(
+        onUpdate: @escaping (String, Bool) -> Void,
+        onAudioLevel: @escaping (Float) -> Void,
+        onError: @escaping (String) -> Void
+    ) async throws {
+        _ = onAudioLevel
+    }
     func stop() {}
     func stopAndFinalize(timeout: TimeInterval) async -> String { finalizedText }
     func currentSpeechAuthorizationStatus() -> SFSpeechRecognizerAuthorizationStatus { .authorized }
@@ -248,13 +254,21 @@ private final class RefinementMockWhisperTranscriber: WhisperTranscribing {
     func setQualityPreset(_ preset: DictationQualityPreset) { qualityPreset = preset }
     func prepareForLaunch() async {}
     func refreshModelStatus() -> WhisperModelStatus { .bundled }
-    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {}
+    func startStreaming(
+        onPartial: @escaping (WhisperPartialTranscript) -> Void,
+        onAudioLevel: @escaping (Float) -> Void
+    ) async throws {
+        _ = onAudioLevel
+    }
     func stopStreamingAndFinalize() async throws -> String { "" }
     func transcribe(audioFileURL: URL) async throws -> String { "" }
 }
 
 private final class RefinementMockAudioRecorder: AudioRecording {
-    func startRecording() throws -> URL { URL(fileURLWithPath: "/tmp/mock.wav") }
+    func startRecording(onAudioLevel: @escaping (Float) -> Void) throws -> URL {
+        onAudioLevel(0.35)
+        return URL(fileURLWithPath: "/tmp/mock.wav")
+    }
     func stopRecording() -> URL? { URL(fileURLWithPath: "/tmp/mock.wav") }
 }
 

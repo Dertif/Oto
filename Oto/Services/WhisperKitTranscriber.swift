@@ -158,7 +158,10 @@ final class WhisperKitTranscriber {
         }
     }
 
-    func startStreaming(onPartial: @escaping (WhisperPartialTranscript) -> Void) async throws {
+    func startStreaming(
+        onPartial: @escaping (WhisperPartialTranscript) -> Void,
+        onAudioLevel: @escaping (Float) -> Void
+    ) async throws {
         guard streamingEnabled else {
             throw WhisperKitTranscriberError.streamingNotAvailable
         }
@@ -198,6 +201,7 @@ final class WhisperKitTranscriber {
                 let partial = Self.buildPartial(from: newState)
                 self.latestStreamingPartial = partial
                 onPartial(partial)
+                onAudioLevel(Self.normalizedAudioLevel(from: newState.bufferEnergy))
             }
         )
 
@@ -609,5 +613,15 @@ final class WhisperKitTranscriber {
             .map(\.text)
             .joined(separator: " ")
         return Self.sanitizeTranscriptionText(text)
+    }
+
+    private static func normalizedAudioLevel(from bufferEnergy: [Float]) -> Float {
+        guard !bufferEnergy.isEmpty else {
+            return 0
+        }
+
+        let tail = bufferEnergy.suffix(4)
+        let average = tail.reduce(0, +) / Float(tail.count)
+        return min(1, max(0, average))
     }
 }

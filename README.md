@@ -22,6 +22,8 @@ Current implemented scope (Phase 0.1 -> 0.5 capability baseline) includes:
 - Deterministic refinement fallback to raw text with soft warning semantics
 - Raw/refined transcript artifact split and output-source diagnostics
 - Refinement latency aggregation (P50/P95 summary in UI)
+- Floating always-on overlay recorder surface (outside fullscreen apps)
+- Session-only internal transcript clipboard + global `Ctrl+Cmd+V` paste shortcut
 
 ## Requirements
 
@@ -165,6 +167,27 @@ If a custom menu bar icon is missing, the app falls back to SF Symbols.
 Recording animation note:
 - The menu bar icon uses AppKit (`NSStatusItem`) and applies a runtime breathing opacity animation while recording.
 - Internal debug speed override is available with `OTO_DEBUG_RECORDING_ANIMATION_SPEED_MULTIPLIER` (for example `1.5`).
+
+## Floating Overlay
+
+- Oto includes a compact floating overlay that stays above normal desktop spaces.
+- Overlay states:
+  - `Idle`: compact presence pill
+  - `Hover`: start hint (`Click or hold fn to start dictating`)
+  - `Recording`: live waveform reacting to microphone level
+  - `Processing`: compact loader
+- Overlay behavior:
+  - Click toggles recording start/stop.
+  - Overlay is visible across Spaces but intentionally hidden from fullscreen app spaces.
+  - Overlay position is draggable and persisted per display.
+  - Configure from **Advanced Settings → Floating Overlay**.
+
+## Global Transcript Paste
+
+- Oto keeps the latest finalized transcript in an in-memory session clipboard.
+- Press `Ctrl + Cmd + V` to force-paste the latest transcript in the active app.
+- If synthetic `Cmd+V` cannot be posted, Oto keeps the transcript in system clipboard so manual paste still works.
+- Session clipboard is not persisted across app restarts.
 
 ## WhisperKit Models (Bundled)
 

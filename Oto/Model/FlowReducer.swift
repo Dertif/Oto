@@ -32,6 +32,7 @@ enum FlowReducer {
             next.phase = .listening
             next.activeBackend = backend
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.transcriptStableText = ""
             next.transcriptLiveText = ""
             next.rawTranscriptText = ""
@@ -47,6 +48,13 @@ enum FlowReducer {
             }
             next.phase = .transcribing
             next.statusMessage = message
+            next.recordingAudioLevel = 0
+
+        case let .recordingAudioLevelUpdated(level):
+            guard snapshot.phase == .listening || snapshot.phase == .transcribing || snapshot.phase == .refining || snapshot.phase == .injecting else {
+                return reject("recordingAudioLevelUpdated is only valid from listening/transcribing/refining/injecting")
+            }
+            next.recordingAudioLevel = min(1, max(0, level))
 
         case let .transcriptionProgress(stable, live):
             guard snapshot.phase == .listening || snapshot.phase == .transcribing else {
@@ -62,6 +70,7 @@ enum FlowReducer {
             next.phase = .failed
             next.statusMessage = message
             next.failureMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case let .captureFailed(message):
@@ -71,6 +80,7 @@ enum FlowReducer {
             next.phase = .failed
             next.statusMessage = message
             next.failureMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case let .transcriptionSucceeded(text):
@@ -79,6 +89,7 @@ enum FlowReducer {
             }
             next.phase = .refining
             next.statusMessage = "Refining transcript..."
+            next.recordingAudioLevel = 0
             next.rawTranscriptText = text
             next.finalTranscriptText = text
             next.transcriptStableText = text
@@ -97,6 +108,7 @@ enum FlowReducer {
             }
             next.phase = .injecting
             next.statusMessage = "Injecting refined transcript..."
+            next.recordingAudioLevel = 0
             next.refinedTranscriptText = text
             next.finalTranscriptText = text
             next.transcriptStableText = text
@@ -110,6 +122,7 @@ enum FlowReducer {
             }
             next.phase = .injecting
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.finalTranscriptText = text
             next.transcriptStableText = text
             next.transcriptLiveText = ""
@@ -122,6 +135,7 @@ enum FlowReducer {
             }
             next.phase = .injecting
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.finalTranscriptText = text
             next.transcriptStableText = text
             next.transcriptLiveText = ""
@@ -135,6 +149,7 @@ enum FlowReducer {
             next.phase = .failed
             next.statusMessage = message
             next.failureMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case .injectionStarted:
@@ -149,6 +164,7 @@ enum FlowReducer {
             }
             next.phase = .completed
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case let .injectionSkipped(message):
@@ -157,6 +173,7 @@ enum FlowReducer {
             }
             next.phase = .completed
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case let .injectionFailed(message):
@@ -166,6 +183,7 @@ enum FlowReducer {
             next.phase = .failed
             next.statusMessage = message
             next.failureMessage = message
+            next.recordingAudioLevel = 0
             next.activeBackend = nil
 
         case let .resetToIdle(message):
@@ -175,6 +193,7 @@ enum FlowReducer {
             next.phase = .idle
             next.activeBackend = nil
             next.statusMessage = message
+            next.recordingAudioLevel = 0
             next.transcriptLiveText = ""
             next.transcriptStableText = ""
             next.rawTranscriptText = ""

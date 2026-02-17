@@ -37,6 +37,7 @@ final class AppState: ObservableObject {
         }
     }
     @AppStorage("oto.allowCommandVFallback") private var allowCommandVFallbackStorage = true
+    @AppStorage("oto.overlayEnabled") private var overlayEnabledStorage = true
 
     @Published var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @Published var speechPermissionStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
@@ -45,6 +46,7 @@ final class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isProcessing = false
     @Published var visualState: RecorderVisualState = .idle
+    @Published var recordingAudioLevel: Float = 0
     @Published var transcript = ""
     @Published var transcriptStableText = ""
     @Published var transcriptLiveText = ""
@@ -65,6 +67,15 @@ final class AppState: ObservableObject {
     @Published var lastOutputSourceLabel = "Unknown"
     @Published var autoInjectEnabled = true
     @Published var copyToClipboardWhenAutoInjectDisabled = false
+    @Published var overlayEnabled = true {
+        didSet {
+            guard overlayEnabled != oldValue else {
+                return
+            }
+            overlayEnabledStorage = overlayEnabled
+        }
+    }
+    @Published private(set) var overlayResetToken = 0
     @Published var allowCommandVFallback = true {
         didSet {
             guard allowCommandVFallback != oldValue else {
@@ -85,8 +96,11 @@ final class AppState: ObservableObject {
     private let textInjectionService: TextInjecting
     private let textRefiner: TextRefining
     private let hotkeyService = GlobalHotkeyService()
+    private let globalTranscriptPasteHotkeyService = GlobalTranscriptPasteHotkeyService()
     private let hotkeyInterpreter = FnHotkeyInterpreter()
     private let frontmostTracker: FrontmostAppProviding
+    private let sessionTranscriptClipboard = SessionTranscriptClipboard()
+    private let globalTranscriptPasteShortcutHandler: GlobalTranscriptPasteShortcutHandler
     private let coordinator: RecordingFlowCoordinator
 
     init() {
@@ -101,6 +115,7 @@ final class AppState: ObservableObject {
         let latencyRecorder: LatencyMetricsRecording = LatencyMetricsRecorder()
         let refinementLatencyRecorder: RefinementLatencyRecording = RefinementLatencyRecorder()
         let frontmostTracker: FrontmostAppProviding = FrontmostApplicationTracker()
+        let commandVPasteService: CommandVPasting = CommandVPasteService()
 
         self.transcriptStore = transcriptStore
         self.transcriptHistoryStore = transcriptHistoryStore
@@ -109,6 +124,10 @@ final class AppState: ObservableObject {
         self.textInjectionService = textInjectionService
         self.textRefiner = textRefiner
         self.frontmostTracker = frontmostTracker
+        self.globalTranscriptPasteShortcutHandler = GlobalTranscriptPasteShortcutHandler(
+            clipboard: sessionTranscriptClipboard,
+            pasteService: commandVPasteService
+        )
         self.coordinator = RecordingFlowCoordinator(
             speechTranscriber: appleTranscriber,
             whisperTranscriber: whisperTranscriber,
@@ -136,6 +155,7 @@ final class AppState: ObservableObject {
         refinementModeRawValueStorage = persistedRefinementMode.rawValue
         refinementMode = persistedRefinementMode
         allowCommandVFallback = allowCommandVFallbackStorage
+        overlayEnabled = overlayEnabledStorage
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()
@@ -147,11 +167,13 @@ final class AppState: ObservableObject {
         apply(snapshot: coordinator.snapshot)
 
         startHotkeyMonitoring()
+        startGlobalTranscriptPasteHotkeyMonitoring()
         frontmostTracker.start()
     }
 
     deinit {
         hotkeyService.stop()
+        globalTranscriptPasteHotkeyService.stop()
         frontmostTracker.stop()
     }
 
@@ -232,6 +254,10 @@ final class AppState: ObservableObject {
         NSWorkspace.shared.open(transcriptStore.folderURL)
     }
 
+    func resetOverlayPosition() {
+        overlayResetToken &+= 1
+    }
+
     func refreshTranscriptHistory() {
         do {
             transcriptHistoryEntries = try transcriptHistoryStore.loadEntries()
@@ -281,6 +307,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    private func startGlobalTranscriptPasteHotkeyMonitoring() {
+        globalTranscriptPasteHotkeyService.start { [weak self] in
+            guard let self else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                await self?.handleGlobalTranscriptPasteHotkey()
+            }
+        }
+    }
+
+    private func handleGlobalTranscriptPasteHotkey() async {
+        _ = await globalTranscriptPasteShortcutHandler.handleHotkeyPress()
+    }
+
     private func handleFnHotkeyEvent(_ event: FnHotkeyEvent) {
         let intent = hotkeyInterpreter.interpret(
             isFnPressed: event.isFnPressed,
@@ -314,6 +355,7 @@ final class AppState: ObservableObject {
         isRecording = projection.isRecording
         isProcessing = projection.isProcessing
         visualState = projection.visualState
+        recordingAudioLevel = projection.recordingAudioLevel
         statusMessage = projection.statusMessage
         transcriptStableText = projection.transcriptStableText
         transcriptLiveText = projection.transcriptLiveText
@@ -329,6 +371,7 @@ final class AppState: ObservableObject {
         lastOutputSourceLabel = projection.outputSource?.rawValue.capitalized ?? "Unknown"
         debugCurrentRunID = snapshot.runID ?? "None"
         debugLastEvent = snapshot.lastEvent.map { "\($0)" } ?? "None"
+        sessionTranscriptClipboard.update(with: snapshot.finalTranscriptText)
     }
 
     func copyDebugSummary() {
