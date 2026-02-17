@@ -81,6 +81,9 @@ final class TranscriptHistoryStore: TranscriptHistoryProviding {
         if filename.hasPrefix("raw-transcript-") {
             return .raw
         }
+        if filename.hasPrefix("failure-context-") {
+            return .failureContext
+        }
         if filename.hasPrefix("transcript-") {
             return .transcript
         }

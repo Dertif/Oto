@@ -5,7 +5,6 @@ private enum AdvancedSettingsSection: String, CaseIterable, Identifiable {
     case settings
     case transcripts
     case diagnostics
-    case extensions
 
     var id: String { rawValue }
 
@@ -17,8 +16,6 @@ private enum AdvancedSettingsSection: String, CaseIterable, Identifiable {
             return "Transcripts"
         case .diagnostics:
             return "Diagnostics"
-        case .extensions:
-            return "Extensions"
         }
     }
 
@@ -30,57 +27,26 @@ private enum AdvancedSettingsSection: String, CaseIterable, Identifiable {
             return "text.bubble"
         case .diagnostics:
             return "waveform.path.ecg"
-        case .extensions:
-            return "sparkles"
         }
     }
 
-    var sidebarHint: String {
-        switch self {
-        case .settings:
-            return "Dictation, permissions, output"
-        case .transcripts:
-            return "History, copy, review"
-        case .diagnostics:
-            return "Flow, latency, runtime"
-        case .extensions:
-            return "Future advanced capabilities"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .settings:
-            return "Primary dictation controls, system permissions, and transcript delivery behavior."
-        case .transcripts:
-            return "Browse saved transcript artifacts and quickly copy content."
-        case .diagnostics:
-            return "Operational context for debugging latency and run outcomes."
-        case .extensions:
-            return "Reserved area for future advanced features without reshaping navigation."
-        }
-    }
 }
 
 struct AdvancedSettingsView: View {
     @ObservedObject var state: AppState
     @State private var selection: AdvancedSettingsSection? = .settings
     @State private var hasLoadedTranscripts = false
+    @State private var transcriptSearchText = ""
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
                 ForEach(AdvancedSettingsSection.allCases) { section in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(section.title, systemImage: section.symbolName)
-                        Text(section.sidebarHint)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .tag(section)
+                    Label(section.title, systemImage: section.symbolName)
+                        .padding(.vertical, 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .tag(section)
                 }
             }
             .listStyle(.sidebar)
@@ -96,7 +62,7 @@ struct AdvancedSettingsView: View {
             .background(Color(nsColor: .windowBackgroundColor))
         }
         .navigationSplitViewColumnWidth(min: 210, ideal: 245, max: 280)
-        .frame(minWidth: 980, minHeight: 620)
+        .frame(minWidth: 780, minHeight: 520)
         .onAppear {
             refreshTranscriptsIfNeeded(for: activeSection)
         }
@@ -110,24 +76,9 @@ struct AdvancedSettingsView: View {
     }
 
     private var sectionHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: activeSection.symbolName)
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 30, height: 30)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.accentColor.opacity(0.14))
-                )
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(activeSection.title)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text(activeSection.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
+        Text(activeSection.title)
+            .font(.title2)
+            .fontWeight(.semibold)
     }
 
     @ViewBuilder
@@ -139,8 +90,6 @@ struct AdvancedSettingsView: View {
             transcriptsSection
         case .diagnostics:
             diagnosticsSection
-        case .extensions:
-            extensionsSection
         }
     }
 
@@ -188,6 +137,26 @@ struct AdvancedSettingsView: View {
                 } helpText: {
                     state.refinementMode.description
                 }
+
+                if state.selectedBackend == .whisper {
+                    Divider()
+                    HStack(spacing: 18) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Whisper model")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(state.whisperModelStatusLabel)
+                                .font(.subheadline)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Whisper runtime")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(state.whisperRuntimeStatusLabel)
+                                .font(.subheadline)
+                        }
+                    }
+                }
             }
 
             SettingsCard(
@@ -202,14 +171,9 @@ struct AdvancedSettingsView: View {
                     }
                     .pickerStyle(.menu)
                     .controlSize(.regular)
+                } helpText: {
+                    "Key: Fn/Globe"
                 }
-
-                Text("Key: Fn/Globe")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(state.hotkeyGuidanceMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             SettingsCard(
@@ -242,26 +206,6 @@ struct AdvancedSettingsView: View {
                 ) {
                     Text("Request Access")
                 }
-
-                if state.selectedBackend == .whisper {
-                    Divider()
-                    HStack(spacing: 18) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Whisper model")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(state.whisperModelStatusLabel)
-                                .font(.subheadline)
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Whisper runtime")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(state.whisperRuntimeStatusLabel)
-                                .font(.subheadline)
-                        }
-                    }
-                }
             }
 
             SettingsCard(
@@ -280,14 +224,42 @@ struct AdvancedSettingsView: View {
         }
     }
 
+    private var filteredTranscriptEntries: [TranscriptHistoryEntry] {
+        if transcriptSearchText.isEmpty {
+            return state.transcriptHistoryEntries
+        }
+        return state.transcriptHistoryEntries.filter {
+            $0.textBody.localizedCaseInsensitiveContains(transcriptSearchText)
+        }
+    }
+
     private var transcriptsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsCard(
                 title: "Transcript History",
                 subtitle: "Most recent transcript artifacts first."
             ) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                    TextField("Search transcripts…", text: $transcriptSearchText)
+                        .textFieldStyle(.plain)
+                        .font(.subheadline)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+
                 HStack {
-                    Text("\(state.transcriptHistoryEntries.count) item\(state.transcriptHistoryEntries.count == 1 ? "" : "s")")
+                    Text("\(filteredTranscriptEntries.count) of \(state.transcriptHistoryEntries.count) item\(state.transcriptHistoryEntries.count == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -313,15 +285,23 @@ struct AdvancedSettingsView: View {
                         )
                 }
 
-                if state.transcriptHistoryEntries.isEmpty {
-                    Text("No transcripts found yet.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
+                if filteredTranscriptEntries.isEmpty {
+                    if transcriptSearchText.isEmpty {
+                        Text("No transcripts found yet.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
+                        Text("No transcripts match \"\(transcriptSearchText)\".")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    }
                 } else {
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(state.transcriptHistoryEntries) { entry in
+                        ForEach(filteredTranscriptEntries) { entry in
                             TranscriptHistoryCard(entry: entry)
                         }
                     }
@@ -369,30 +349,6 @@ struct AdvancedSettingsView: View {
                     metricRow(label: "Last Event", value: state.debugLastEvent)
                     metricRow(label: "Flags", value: state.debugConfigurationSummary)
                 }
-            }
-        }
-    }
-
-    private var extensionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SettingsCard(
-                title: "Scalability Note",
-                subtitle: nil
-            ) {
-                Text("This window is intentionally scalable.")
-                    .font(.headline)
-                Text("Add new advanced sections in the sidebar instead of expanding menu bar complexity.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            SettingsCard(
-                title: "Integration Placeholder",
-                subtitle: nil
-            ) {
-                Text("Reserve this space for future advanced behavior that should remain outside Phase 0.4 scope until explicitly approved.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -566,12 +522,21 @@ private struct TranscriptHistoryCard: View {
                     .font(.caption2)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.15), in: Capsule())
-                    .foregroundStyle(Color.accentColor)
+                    .background(kindBadgeColor(for: entry.kind).opacity(0.15), in: Capsule())
+                    .foregroundStyle(kindBadgeColor(for: entry.kind))
 
                 Text(entry.backendLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if entry.isEnhanced {
+                    Text("Enhanced")
+                        .font(.caption2)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color.green.opacity(0.14), in: Capsule())
+                        .foregroundStyle(.green)
+                }
 
                 Spacer(minLength: 8)
 
@@ -580,10 +545,6 @@ private struct TranscriptHistoryCard: View {
                 }
                 .buttonStyle(.bordered)
             }
-
-            Toggle("Enhanced", isOn: .constant(entry.isEnhanced))
-                .disabled(true)
-                .toggleStyle(.switch)
 
             Text(entry.textBody)
                 .font(.body)
@@ -631,6 +592,19 @@ private struct TranscriptHistoryCard: View {
             await MainActor.run {
                 didCopy = false
             }
+        }
+    }
+
+    private func kindBadgeColor(for kind: TranscriptArtifactKind) -> Color {
+        switch kind {
+        case .transcript:
+            return .secondary
+        case .raw:
+            return .orange
+        case .refined:
+            return .blue
+        case .failureContext:
+            return .red
         }
     }
 

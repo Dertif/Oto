@@ -4,6 +4,7 @@ enum TranscriptArtifactKind: String, Equatable {
     case transcript
     case raw
     case refined
+    case failureContext
 
     var title: String {
         switch self {
@@ -13,6 +14,8 @@ enum TranscriptArtifactKind: String, Equatable {
             return "Raw"
         case .refined:
             return "Refined"
+        case .failureContext:
+            return "Failure"
         }
     }
 }

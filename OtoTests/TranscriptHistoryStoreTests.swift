@@ -3,7 +3,7 @@ import XCTest
 @testable import Oto
 
 final class TranscriptHistoryStoreTests: XCTestCase {
-    func testLoadEntriesIncludesOnlyTranscriptArtifactsAndExcludesFailureContext() throws {
+    func testLoadEntriesIncludesAllKnownArtifactKinds() throws {
         let folder = makeTempFolder(prefix: "TranscriptHistoryFilter")
         defer { try? FileManager.default.removeItem(at: folder) }
 
@@ -25,7 +25,7 @@ final class TranscriptHistoryStoreTests: XCTestCase {
         try writeFile(
             folder: folder,
             name: "failure-context-2026-02-17_10-03-00-000-whisper.txt",
-            content: "should be excluded"
+            content: "timestamp: 2026-02-17T10:03:00Z\nbackend: WhisperKit\n\nfailure details"
         )
         try writeFile(
             folder: folder,
@@ -36,14 +36,18 @@ final class TranscriptHistoryStoreTests: XCTestCase {
         let store = TranscriptHistoryStore(folderURL: folder)
         let entries = try store.loadEntries()
 
-        XCTAssertEqual(entries.count, 3)
-        XCTAssertEqual(Set(entries.map(\.kind)), Set([.transcript, .raw, .refined]))
+        XCTAssertEqual(entries.count, 4)
+        XCTAssertEqual(Set(entries.map(\.kind)), Set([.transcript, .raw, .refined, .failureContext]))
 
         let refined = try XCTUnwrap(entries.first(where: { $0.kind == .refined }))
         XCTAssertTrue(refined.isEnhanced)
 
         let nonRefined = entries.filter { $0.kind != .refined }
         XCTAssertTrue(nonRefined.allSatisfy { !$0.isEnhanced })
+
+        let failure = try XCTUnwrap(entries.first(where: { $0.kind == .failureContext }))
+        XCTAssertEqual(failure.backendLabel, "WhisperKit")
+        XCTAssertEqual(failure.textBody, "failure details")
     }
 
     func testLoadEntriesSortsMostRecentFirst() throws {

@@ -9,7 +9,7 @@ final class AdvancedSettingsWindowController: NSWindowController {
         let view = AdvancedSettingsView(state: state)
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
