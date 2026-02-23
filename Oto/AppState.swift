@@ -72,6 +72,36 @@ final class AppState: ObservableObject {
             refinementModeRawValueStorage = refinementMode.rawValue
         }
     }
+    @AppStorage("oto.refinementProvider") private var refinementProviderRawValueStorage = TextRefinementProvider.appleIntelligence.rawValue
+    @Published var refinementProvider: TextRefinementProvider = .appleIntelligence {
+        didSet {
+            guard refinementProvider != oldValue else {
+                return
+            }
+            refinementProviderRawValueStorage = refinementProvider.rawValue
+            selectableTextRefiner.provider = refinementProvider
+        }
+    }
+    @AppStorage("oto.lmStudioBaseURL") private var lmStudioBaseURLStorage = LMStudioTextRefiner.defaultBaseURLString
+    @Published var lmStudioBaseURL = LMStudioTextRefiner.defaultBaseURLString {
+        didSet {
+            guard lmStudioBaseURL != oldValue else {
+                return
+            }
+            lmStudioBaseURLStorage = lmStudioBaseURL
+            syncSelectableTextRefinerConfiguration()
+        }
+    }
+    @AppStorage("oto.lmStudioModel") private var lmStudioModelStorage = LMStudioTextRefiner.defaultModelName
+    @Published var lmStudioModel = LMStudioTextRefiner.defaultModelName {
+        didSet {
+            guard lmStudioModel != oldValue else {
+                return
+            }
+            lmStudioModelStorage = lmStudioModel
+            syncSelectableTextRefinerConfiguration()
+        }
+    }
     @AppStorage("oto.allowCommandVFallback") private var allowCommandVFallbackStorage = true
     @AppStorage("oto.overlayEnabled") private var overlayEnabledStorage = true
     @AppStorage("oto.overlayPlacement") private var overlayPlacementStorage = OverlayPlacement.topCenter.rawValue
@@ -140,6 +170,7 @@ final class AppState: ObservableObject {
     private let appleTranscriber: SpeechTranscribing
     private let whisperTranscriber: WhisperTranscribing
     private let textInjectionService: TextInjecting
+    private let selectableTextRefiner: SelectableTextRefiner
     private let textRefiner: TextRefining
     private let hotkeyService = GlobalHotkeyService()
     private let globalTranscriptPasteHotkeyService = GlobalTranscriptPasteHotkeyService()
@@ -155,7 +186,12 @@ final class AppState: ObservableObject {
         let appleTranscriber: SpeechTranscribing = AppleSpeechTranscriber()
         let whisperTranscriber: WhisperTranscribing = WhisperKitTranscriber()
         let textInjectionService: TextInjecting = TextInjectionService()
-        let textRefiner: TextRefining = AppleFoundationTextRefiner()
+        let selectableTextRefiner = SelectableTextRefiner(
+            provider: .appleIntelligence,
+            appleRefiner: AppleFoundationTextRefiner(),
+            lmStudioRefiner: LMStudioTextRefiner()
+        )
+        let textRefiner: TextRefining = selectableTextRefiner
         let audioRecorder: AudioRecording = AudioFileRecorder()
         let latencyTracker: WhisperLatencyTracking = WhisperLatencyTracker()
         let latencyRecorder: LatencyMetricsRecording = LatencyMetricsRecorder()
@@ -168,6 +204,7 @@ final class AppState: ObservableObject {
         self.appleTranscriber = appleTranscriber
         self.whisperTranscriber = whisperTranscriber
         self.textInjectionService = textInjectionService
+        self.selectableTextRefiner = selectableTextRefiner
         self.textRefiner = textRefiner
         self.frontmostTracker = frontmostTracker
         self.globalTranscriptPasteShortcutHandler = GlobalTranscriptPasteShortcutHandler(
@@ -200,6 +237,12 @@ final class AppState: ObservableObject {
         let persistedRefinementMode = TextRefinementMode(rawValue: refinementModeRawValueStorage) ?? .enhanced
         refinementModeRawValueStorage = persistedRefinementMode.rawValue
         refinementMode = persistedRefinementMode
+        let persistedRefinementProvider = TextRefinementProvider(rawValue: refinementProviderRawValueStorage) ?? .appleIntelligence
+        refinementProviderRawValueStorage = persistedRefinementProvider.rawValue
+        refinementProvider = persistedRefinementProvider
+        lmStudioBaseURL = lmStudioBaseURLStorage
+        lmStudioModel = lmStudioModelStorage
+        syncSelectableTextRefinerConfiguration()
         allowCommandVFallback = allowCommandVFallbackStorage
         overlayEnabled = overlayEnabledStorage
         let persistedOverlayPlacement = OverlayPlacement(rawValue: overlayPlacementStorage) ?? .topCenter
@@ -290,6 +333,7 @@ final class AppState: ObservableObject {
         let request = StopRecordingRequest(
             selectedBackend: selectedBackend,
             refinementMode: refinementMode,
+            refinementProvider: refinementProvider,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
             allowCommandVFallback: allowCommandVFallback,
@@ -398,6 +442,14 @@ final class AppState: ObservableObject {
         whisperRuntimeStatusLabel = whisperTranscriber.runtimeStatusLabel
     }
 
+    private func syncSelectableTextRefinerConfiguration() {
+        selectableTextRefiner.provider = refinementProvider
+        selectableTextRefiner.updateLMStudioConfiguration(
+            baseURL: lmStudioBaseURL,
+            model: lmStudioModel
+        )
+    }
+
     private func apply(snapshot: FlowSnapshot) {
         let projection = AppStateMapper.map(snapshot: snapshot)
 
@@ -432,6 +484,9 @@ final class AppState: ObservableObject {
         backend: \(selectedBackend.rawValue)
         quality_preset: \(qualityPreset.rawValue)
         refinement_mode: \(refinementMode.rawValue)
+        refinement_provider: \(refinementProvider.rawValue)
+        refinement_lmstudio_url: \(lmStudioBaseURL)
+        refinement_lmstudio_model: \(lmStudioModel)
         refinement_availability: \(textRefiner.availabilityLabel)
         output_source: \(lastOutputSourceLabel)
         hotkey_mode: \(hotkeyMode.rawValue)
@@ -479,6 +534,10 @@ final class AppState: ObservableObject {
 
     var accessibilityStatusLabel: String {
         accessibilityTrusted ? "Authorized" : "Not authorized"
+    }
+
+    var refinementAvailabilityLabel: String {
+        textRefiner.availabilityLabel
     }
 
     private func currentPermissionSnapshot() -> PermissionSnapshot {

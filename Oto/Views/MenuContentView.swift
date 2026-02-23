@@ -84,6 +84,14 @@ struct MenuContentView: View {
             }
             .pickerStyle(.menu)
             .disabled(state.isRecording || state.isProcessing)
+
+            Picker("Refiner", selection: $state.refinementProvider) {
+                ForEach(TextRefinementProvider.allCases) { provider in
+                    Text(provider.rawValue).tag(provider)
+                }
+            }
+            .pickerStyle(.menu)
+            .disabled(state.isRecording || state.isProcessing)
         }
     }
 

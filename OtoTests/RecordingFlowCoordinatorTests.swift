@@ -58,6 +58,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         StopRecordingRequest(
             selectedBackend: backend,
             refinementMode: refinementMode,
+            refinementProvider: .appleIntelligence,
             autoInjectEnabled: autoInjectEnabled,
             copyToClipboardWhenAutoInjectDisabled: copyToClipboardWhenAutoInjectDisabled,
             allowCommandVFallback: allowCommandVFallback,

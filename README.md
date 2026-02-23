@@ -19,6 +19,7 @@ Current implemented scope (Phase 0.1 -> 0.5 capability baseline) includes:
 - Backend latency aggregation (P50/P95 summary in UI)
 - Whisper quality presets (`Fast`, `Accurate`) persisted via user settings
 - Optional local text refinement modes (`Raw`, `Enhanced`) for both backends
+- Refinement provider switch: Apple Intelligence / LM Studio (local LLM)
 - Deterministic refinement fallback to raw text with soft warning semantics
 - Raw/refined transcript artifact split and output-source diagnostics
 - Refinement latency aggregation (P50/P95 summary in UI)
@@ -59,6 +60,8 @@ xcodegen --version
 - `Oto/Services/RefinementLatencyRecorder.swift`: refinement latency aggregation + summary formatting.
 - `Oto/Services/TranscriptNormalizer.swift`: shared transcript cleanup rules.
 - `Oto/Services/AppleFoundationTextRefiner.swift`: on-device refinement provider.
+- `Oto/Services/LMStudioTextRefiner.swift`: LM Studio local API refinement provider.
+- `Oto/Services/SelectableTextRefiner.swift`: routes refinement to selected provider.
 - `Oto/Services/TextRefinementPolicy.swift`: meaning-preservation guardrails.
 
 ## First-Time Setup
@@ -212,6 +215,10 @@ Runtime behavior:
 - Refinement modes:
   - `Raw`: bypasses refiner, uses normalized transcript text.
   - `Enhanced`: attempts on-device refinement and falls back to raw on unavailability/timeout/guardrail rejection.
+- Refinement providers:
+  - `Apple Intelligence`: uses Foundation Models on-device when available.
+  - `LM Studio`: calls a local OpenAI-compatible endpoint (default `http://127.0.0.1:1234`).
+  - Configure provider and LM Studio endpoint/model in **Advanced Settings → Dictation**.
 
 Debug toggles:
 - `OTO_ALLOW_WHISPER_DOWNLOAD=1`: Debug-only model download fallback.
@@ -248,6 +255,7 @@ Failure-context artifacts include run metadata for easier debugging:
 - whisper runtime status
 - frontmost app bundle id
 - refinement mode/availability/latency/fallback reason
+- refinement provider (Apple Intelligence or LM Studio)
 - final output source used for injection (`raw` or `refined`)
 
 ## Troubleshooting

@@ -138,6 +138,39 @@ struct AdvancedSettingsView: View {
                     state.refinementMode.description
                 }
 
+                InlineControlRow(label: "Refiner") {
+                    Picker("Refinement Provider", selection: $state.refinementProvider) {
+                        ForEach(TextRefinementProvider.allCases) { provider in
+                            Text(provider.rawValue).tag(provider)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .controlSize(.regular)
+                    .disabled(state.isRecording || state.isProcessing)
+                } helpText: {
+                    state.refinementProvider.description
+                }
+
+                if state.refinementProvider == .lmStudio {
+                    InlineControlRow(label: "LM Studio URL") {
+                        TextField("http://127.0.0.1:1234", text: $state.lmStudioBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 320)
+                            .disabled(state.isRecording || state.isProcessing)
+                    } helpText: {
+                        "Base URL for LM Studio's local OpenAI-compatible API."
+                    }
+
+                    InlineControlRow(label: "LM Studio Model") {
+                        TextField("local-model", text: $state.lmStudioModel)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 320)
+                            .disabled(state.isRecording || state.isProcessing)
+                    } helpText: {
+                        "Model name sent in the chat completions request."
+                    }
+                }
+
                 if state.selectedBackend == .whisper {
                     Divider()
                     HStack(spacing: 18) {
@@ -350,6 +383,8 @@ struct AdvancedSettingsView: View {
                 metricRow(label: "Status", value: state.statusMessage)
                 metricRow(label: "Latency", value: state.latencySummary)
                 metricRow(label: "Refinement", value: state.refinementLatencySummary)
+                metricRow(label: "Refiner", value: state.refinementProvider.rawValue)
+                metricRow(label: "Availability", value: state.refinementAvailabilityLabel)
                 metricRow(label: "Output Source", value: state.lastOutputSourceLabel)
             }
 

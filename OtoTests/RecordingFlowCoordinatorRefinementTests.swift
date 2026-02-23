@@ -23,6 +23,7 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
         StopRecordingRequest(
             selectedBackend: .appleSpeech,
             refinementMode: refinementMode,
+            refinementProvider: .appleIntelligence,
             autoInjectEnabled: true,
             copyToClipboardWhenAutoInjectDisabled: false,
             allowCommandVFallback: false,

@@ -11,6 +11,7 @@ struct StartRecordingRequest {
 struct StopRecordingRequest {
     let selectedBackend: STTBackend
     let refinementMode: TextRefinementMode
+    let refinementProvider: TextRefinementProvider
     let autoInjectEnabled: Bool
     let copyToClipboardWhenAutoInjectDisabled: Bool
     let allowCommandVFallback: Bool
@@ -77,6 +78,7 @@ final class RecordingFlowCoordinator {
     private var latestAutoInjectEnabled = true
     private var latestAllowCommandVFallback = false
     private var latestRefinementMode: TextRefinementMode = .enhanced
+    private var latestRefinementProvider: TextRefinementProvider = .appleIntelligence
     private var latestInjectionDiagnostics: TextInjectionDiagnostics?
     private var latestRefinementDiagnostics: TextRefinementDiagnostics?
     private var latestStopRequestedAt: Date?
@@ -145,6 +147,7 @@ final class RecordingFlowCoordinator {
         latestAutoInjectEnabled = true
         latestAllowCommandVFallback = false
         latestRefinementMode = .enhanced
+        latestRefinementProvider = .appleIntelligence
         latestInjectionDiagnostics = nil
         latestRefinementDiagnostics = nil
         latestStopRequestedAt = nil
@@ -278,6 +281,7 @@ final class RecordingFlowCoordinator {
         latestAutoInjectEnabled = request.autoInjectEnabled
         latestAllowCommandVFallback = request.allowCommandVFallback
         latestRefinementMode = request.refinementMode
+        latestRefinementProvider = request.refinementProvider
 
         if isCaptureStartupInFlight || activeRecordingStartedAt == nil {
             pendingStopRequest = request
@@ -765,6 +769,7 @@ final class RecordingFlowCoordinator {
         let preferredActivated = diagnostics?.preferredAppActivated ?? false
         let diagnosticsFrontmostBundleID = diagnostics?.frontmostAppBundleID ?? frontmostBundleID
         let refinementMode = latestRefinementMode.rawValue
+        let refinementProvider = latestRefinementProvider.rawValue
         let refinementAvailability = refinementDiagnostics?.availability ?? textRefiner.availabilityLabel
         let refinementLatencyMs = Int((refinementDiagnostics?.latency ?? 0) * 1000)
         let refinementFallbackReason = refinementDiagnostics?.fallbackReason ?? "None"
@@ -796,6 +801,7 @@ final class RecordingFlowCoordinator {
         focus_wait_ms: \(focusWaitMs)
         frontmost_app_bundle_id_during_injection: \(diagnosticsFrontmostBundleID)
         refinement_mode: \(refinementMode)
+        refinement_provider: \(refinementProvider)
         refinement_availability: \(refinementAvailability)
         refinement_latency_ms: \(refinementLatencyMs)
         refinement_fallback_reason: \(refinementFallbackReason)

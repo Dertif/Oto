@@ -69,6 +69,7 @@ Fallback reason is recorded as diagnostic (`guardrail_*`).
 
 ### Provider
 - `AppleFoundationTextRefiner` (availability-gated, on-device only)
+- `LMStudioTextRefiner` (local OpenAI-compatible endpoint, default `http://127.0.0.1:1234`)
 
 ### Fallback behavior
 If `Enhanced` is selected and refinement does not produce accepted output:
