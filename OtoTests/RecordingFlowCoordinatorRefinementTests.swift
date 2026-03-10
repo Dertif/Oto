@@ -54,6 +54,7 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: RefinementMockWhisperTranscriber(),
+            whisperCppTranscriber: RefinementMockWhisperCppTranscriber(),
             audioRecorder: RefinementMockAudioRecorder(),
             transcriptStore: store,
             textInjector: injector,
@@ -106,6 +107,7 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: RefinementMockWhisperTranscriber(),
+            whisperCppTranscriber: RefinementMockWhisperCppTranscriber(),
             audioRecorder: RefinementMockAudioRecorder(),
             transcriptStore: store,
             textInjector: injector,
@@ -150,6 +152,7 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: RefinementMockWhisperTranscriber(),
+            whisperCppTranscriber: RefinementMockWhisperCppTranscriber(),
             audioRecorder: RefinementMockAudioRecorder(),
             transcriptStore: RefinementMockTranscriptStore(),
             textInjector: RefinementMockTextInjector(),
@@ -186,6 +189,7 @@ final class RecordingFlowCoordinatorRefinementTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: RefinementMockWhisperTranscriber(),
+            whisperCppTranscriber: RefinementMockWhisperCppTranscriber(),
             audioRecorder: RefinementMockAudioRecorder(),
             transcriptStore: RefinementMockTranscriptStore(),
             textInjector: RefinementMockTextInjector(),
@@ -261,6 +265,36 @@ private final class RefinementMockWhisperTranscriber: WhisperTranscribing {
         _ = onAudioLevel
     }
     func stopStreamingAndFinalize() async throws -> String { "" }
+    func transcribe(audioFileURL: URL) async throws -> String { "" }
+}
+
+@MainActor
+private final class RefinementMockWhisperCppTranscriber: WhisperCppTranscribing {
+    var selectedModel: WhisperCppModel = .baseEn
+    let supportedModels = WhisperCppModel.allCases
+    var runtimeStatusLabel: String = "Ready"
+    var modelStatusLabel: String = "Available locally"
+    var downloadState: WhisperCppModelDownloadState = .downloaded
+    var onStateChange: ((WhisperCppRuntimeSnapshot) -> Void)?
+
+    func prepareForLaunch() async {}
+
+    func refreshState() -> WhisperCppRuntimeSnapshot {
+        WhisperCppRuntimeSnapshot(
+            selectedModel: selectedModel,
+            modelStatusLabel: modelStatusLabel,
+            runtimeStatusLabel: runtimeStatusLabel,
+            downloadState: downloadState
+        )
+    }
+
+    func selectModel(_ model: WhisperCppModel) {
+        selectedModel = model
+    }
+
+    func downloadSelectedModel() async {}
+    func cancelDownload() {}
+    func deleteSelectedModel() throws {}
     func transcribe(audioFileURL: URL) async throws -> String { "" }
 }
 

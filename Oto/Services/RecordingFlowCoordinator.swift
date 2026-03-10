@@ -46,6 +46,7 @@ final class RecordingFlowCoordinator {
 
     private let speechTranscriber: SpeechTranscribing
     private let whisperTranscriber: WhisperTranscribing
+    private let whisperCppTranscriber: WhisperCppTranscribing
     private let audioRecorder: AudioRecording
     private let transcriptStore: TranscriptPersisting
     private let textInjector: TextInjecting
@@ -87,6 +88,7 @@ final class RecordingFlowCoordinator {
     init(
         speechTranscriber: SpeechTranscribing,
         whisperTranscriber: WhisperTranscribing,
+        whisperCppTranscriber: WhisperCppTranscribing,
         audioRecorder: AudioRecording,
         transcriptStore: TranscriptPersisting,
         textInjector: TextInjecting,
@@ -102,6 +104,7 @@ final class RecordingFlowCoordinator {
     ) {
         self.speechTranscriber = speechTranscriber
         self.whisperTranscriber = whisperTranscriber
+        self.whisperCppTranscriber = whisperCppTranscriber
         self.audioRecorder = audioRecorder
         self.transcriptStore = transcriptStore
         self.textInjector = textInjector
@@ -264,6 +267,33 @@ final class RecordingFlowCoordinator {
                     transition(.captureFailed(message: "Unable to start Whisper recording: \(error.localizedDescription)"))
                 }
             }
+
+        case .whisperCpp:
+            activeRecordingBackend = .whisperCpp
+            do {
+                _ = try audioRecorder.startRecording(onAudioLevel: { [weak self] level in
+                    guard let self else {
+                        return
+                    }
+                    Task { @MainActor [weak self] in
+                        self?.publishRecordingAudioLevel(level)
+                    }
+                })
+                activeRecordingStartedAt = nowProvider()
+                latencyTracker.beginRun(usingStreaming: false, at: activeRecordingStartedAt ?? nowProvider())
+                isCaptureStartupInFlight = false
+                setStatus(startMessage(for: .whisperCpp))
+                logFlow("Whisper.cpp capture started")
+                flushPendingStopRequestIfNeeded()
+            } catch {
+                activeRecordingBackend = nil
+                activeRecordingStartedAt = nil
+                isCaptureStartupInFlight = false
+                pendingStopRequest = nil
+                latencyTracker.reset()
+                logFlow("Whisper.cpp capture start failed: \(error.localizedDescription)", level: .error)
+                transition(.captureFailed(message: "Unable to start Whisper.cpp recording: \(error.localizedDescription)"))
+            }
         }
     }
 
@@ -396,7 +426,38 @@ final class RecordingFlowCoordinator {
                     }
                 }
 
-                self.finalizeWhisperLatencyRun()
+                self.finalizeWhisperLatencyRun(for: .whisper)
+            }
+
+        case .whisperCpp:
+            activeRecordingBackend = nil
+            latencyTracker.markStopRequested(at: nowProvider())
+            transition(.stopRequested(message: "Transcribing with Whisper.cpp..."))
+
+            let audioURL = audioRecorder.stopRecording()
+
+            Task {
+                do {
+                    guard let audioURL else {
+                        throw AudioFileRecorderError.failedToStart
+                    }
+
+                    let text = try await whisperCppTranscriber.transcribe(audioFileURL: audioURL)
+                    await self.handleFinalTranscript(
+                        text: text,
+                        backend: .whisperCpp,
+                        refinementMode: request.refinementMode,
+                        autoInjectEnabled: request.autoInjectEnabled,
+                        copyToClipboardWhenAutoInjectDisabled: request.copyToClipboardWhenAutoInjectDisabled,
+                        allowCommandVFallback: request.allowCommandVFallback
+                    )
+                } catch {
+                    await self.persistFailureContext(backend: .whisperCpp, reason: error.localizedDescription)
+                    self.logFlow("Whisper.cpp finalization failed: \(error.localizedDescription)", level: .error)
+                    self.transition(.transcriptionFailed(message: "Whisper.cpp failed: \(error.localizedDescription)"))
+                }
+
+                self.finalizeWhisperLatencyRun(for: .whisperCpp)
             }
         }
     }
@@ -415,6 +476,8 @@ final class RecordingFlowCoordinator {
                 _ = audioRecorder.stopRecording()
             }
             activeWhisperCaptureMode = nil
+        case .whisperCpp:
+            _ = audioRecorder.stopRecording()
         }
 
         activeRecordingBackend = nil
@@ -785,6 +848,7 @@ final class RecordingFlowCoordinator {
         speech_permission: \(latestPermissionSnapshot.speech)
         accessibility_permission: \(latestPermissionSnapshot.accessibility)
         whisper_runtime_status: \(whisperTranscriber.runtimeStatusLabel)
+        whisper_cpp_runtime_status: \(whisperCppTranscriber.runtimeStatusLabel)
         frontmost_app_bundle_id: \(frontmostBundleID)
         preferred_app_bundle_id: \(preferredBundleID)
         preferred_app_activated: \(preferredActivated)
@@ -914,6 +978,8 @@ final class RecordingFlowCoordinator {
             return "Listening with Apple Speech..."
         case .whisper:
             return "Listening with WhisperKit..."
+        case .whisperCpp:
+            return "Listening with Whisper.cpp..."
         }
     }
 
@@ -977,13 +1043,13 @@ final class RecordingFlowCoordinator {
         activeWhisperCaptureMode = .file
     }
 
-    private func finalizeWhisperLatencyRun() {
+    private func finalizeWhisperLatencyRun(for backend: STTBackend) {
         guard let metrics = latencyTracker.finish(at: nowProvider()) else {
             return
         }
 
         let backendMetrics = BackendLatencyMetrics(
-            backend: .whisper,
+            backend: backend,
             usedStreaming: metrics.usedStreaming,
             timeToFirstPartial: metrics.timeToFirstPartial,
             stopToFinal: metrics.stopToFinalTranscript,

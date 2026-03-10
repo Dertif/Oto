@@ -152,6 +152,9 @@ final class TranscriptHistoryStore: TranscriptHistoryProviding {
         if filename.contains("-apple-speech") {
             return STTBackend.appleSpeech.rawValue
         }
+        if filename.contains("-whisper-cpp") {
+            return STTBackend.whisperCpp.rawValue
+        }
         if filename.contains("-whisper") {
             return STTBackend.whisper.rawValue
         }

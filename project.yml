@@ -8,6 +8,9 @@ packages:
   WhisperKit:
     url: https://github.com/argmaxinc/WhisperKit.git
     from: 0.15.0
+  WhisperSPM:
+    url: https://github.com/ggerganov/whisper.spm.git
+    branch: master
 targets:
   Oto:
     type: application
@@ -22,6 +25,8 @@ targets:
     dependencies:
       - package: WhisperKit
         product: WhisperKit
+      - package: WhisperSPM
+        product: whisper
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.remi.oto

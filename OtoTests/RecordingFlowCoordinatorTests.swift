@@ -86,6 +86,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -137,6 +138,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -162,6 +164,56 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(metricsRecorder.recordedMetrics.first?.backend, .whisper)
     }
 
+    func testWhisperCppRunPublishesBackendLatencySummary() async {
+        let speech = MockSpeechTranscriber()
+        let whisper = MockWhisperTranscriber()
+        let whisperCpp = MockWhisperCppTranscriber()
+        whisperCpp.finalizedText = "hello whisper cpp"
+        let recorder = MockAudioRecorder()
+        let store = MockTranscriptStore()
+        let injector = MockTextInjector()
+        injector.result = successInjectionReport(.success)
+        let latency = MockLatencyTracker()
+        latency.finishedMetrics = WhisperLatencyMetrics(
+            usedStreaming: false,
+            timeToFirstPartial: nil,
+            stopToFinalTranscript: 0.22,
+            totalDuration: 1.40
+        )
+        let metricsRecorder = MockLatencyRecorder()
+        let frontmost = MockFrontmostProvider()
+
+        var now: TimeInterval = 0
+        var snapshot = FlowSnapshot.initial
+
+        let coordinator = RecordingFlowCoordinator(
+            speechTranscriber: speech,
+            whisperTranscriber: whisper,
+            whisperCppTranscriber: whisperCpp,
+            audioRecorder: recorder,
+            transcriptStore: store,
+            textInjector: injector,
+            latencyTracker: latency,
+            latencyRecorder: metricsRecorder,
+            frontmostAppProvider: frontmost,
+            nowProvider: { Date(timeIntervalSince1970: now) }
+        )
+        coordinator.onSnapshot = { latest in
+            snapshot = latest
+        }
+
+        coordinator.startRecording(request: startRequest(backend: .whisperCpp))
+        now = 2.0
+        coordinator.stopRecording(request: stopRequest(backend: .whisperCpp))
+
+        await eventually(timeout: 1.0) {
+            snapshot.phase == .completed
+        }
+
+        XCTAssertGreaterThan(latency.finishCallCount, 0)
+        XCTAssertEqual(metricsRecorder.recordedMetrics.first?.backend, .whisperCpp)
+    }
+
     func testRecordingAudioLevelPublishesDuringListeningAndResetsOnStop() async {
         let speech = MockSpeechTranscriber()
         speech.finalizedText = "hello world"
@@ -179,6 +231,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -223,6 +276,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -270,6 +324,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -325,6 +380,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -368,6 +424,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -423,6 +480,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -470,6 +528,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -510,6 +569,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -554,6 +614,7 @@ final class RecordingFlowCoordinatorTests: XCTestCase {
         let coordinator = RecordingFlowCoordinator(
             speechTranscriber: speech,
             whisperTranscriber: whisper,
+            whisperCppTranscriber: MockWhisperCppTranscriber(),
             audioRecorder: recorder,
             transcriptStore: store,
             textInjector: injector,
@@ -677,6 +738,44 @@ private final class MockWhisperTranscriber: WhisperTranscribing {
         }
         return finalizedText
     }
+
+    func transcribe(audioFileURL: URL) async throws -> String {
+        if let transcribeError {
+            throw transcribeError
+        }
+        return finalizedText
+    }
+}
+
+@MainActor
+private final class MockWhisperCppTranscriber: WhisperCppTranscribing {
+    var selectedModel: WhisperCppModel = .baseEn
+    let supportedModels = WhisperCppModel.allCases
+    var runtimeStatusLabel: String = "Ready"
+    var modelStatusLabel: String = "Available locally"
+    var downloadState: WhisperCppModelDownloadState = .downloaded
+    var onStateChange: ((WhisperCppRuntimeSnapshot) -> Void)?
+    var finalizedText = ""
+    var transcribeError: Error?
+
+    func prepareForLaunch() async {}
+
+    func refreshState() -> WhisperCppRuntimeSnapshot {
+        WhisperCppRuntimeSnapshot(
+            selectedModel: selectedModel,
+            modelStatusLabel: modelStatusLabel,
+            runtimeStatusLabel: runtimeStatusLabel,
+            downloadState: downloadState
+        )
+    }
+
+    func selectModel(_ model: WhisperCppModel) {
+        selectedModel = model
+    }
+
+    func downloadSelectedModel() async {}
+    func cancelDownload() {}
+    func deleteSelectedModel() throws {}
 
     func transcribe(audioFileURL: URL) async throws -> String {
         if let transcribeError {
