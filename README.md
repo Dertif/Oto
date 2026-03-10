@@ -22,6 +22,7 @@ Current implemented scope (Phase 0.1 -> 0.5 capability baseline) includes:
 - Deterministic refinement fallback to raw text with soft warning semantics
 - Raw/refined transcript artifact split and output-source diagnostics
 - Refinement latency aggregation (P50/P95 summary in UI)
+- CLI for audio-file transcription and transcript refinement
 - Floating always-on overlay recorder surface (outside fullscreen apps)
 - Session-only internal transcript clipboard + global `Ctrl+Cmd+V` paste shortcut
 
@@ -46,6 +47,7 @@ xcodegen --version
 - `Oto/`: app source code
 - `Oto/Assets.xcassets`: app and menu bar icons
 - `Oto/Resources/WhisperModels`: bundled Whisper model assets
+- `Oto/CLI`: CLI argument parsing and executable entry point
 - `docs/`: phase docs and architecture notes
 
 ## Architecture Snapshot
@@ -60,6 +62,7 @@ xcodegen --version
 - `Oto/Services/TranscriptNormalizer.swift`: shared transcript cleanup rules.
 - `Oto/Services/AppleFoundationTextRefiner.swift`: on-device refinement provider.
 - `Oto/Services/TextRefinementPolicy.swift`: meaning-preservation guardrails.
+- `Oto/Services/AudioFileTranscriptionService.swift`: shared audio-file transcription entry point used by the CLI.
 
 ## First-Time Setup
 
@@ -97,6 +100,12 @@ xcodegen generate
 xcodebuild -project Oto.xcodeproj -scheme Oto -configuration Debug -destination 'platform=macOS' build
 ```
 
+### Build CLI (Debug)
+
+```bash
+xcodebuild -project Oto.xcodeproj -scheme OtoCLI -configuration Debug -destination 'platform=macOS' build
+```
+
 ### Build (Release)
 
 ```bash
@@ -115,6 +124,12 @@ xcodebuild -project Oto.xcodeproj -scheme Oto -configuration Debug -destination 
 open "$(ls -dt ~/Library/Developer/Xcode/DerivedData/Oto-*/Build/Products/Debug/Oto.app | head -n 1)"
 ```
 
+### Run built CLI
+
+```bash
+"$(ls -dt ~/Library/Developer/Xcode/DerivedData/Oto-*/Build/Products/Debug/oto | head -n 1)" --help
+```
+
 ### List schemes/targets
 
 ```bash
@@ -130,6 +145,28 @@ Run tests:
 ```bash
 xcodebuild -project Oto.xcodeproj -scheme Oto -destination 'platform=macOS' test
 ```
+
+## CLI
+
+`OtoCLI` reuses Oto's shared transcription, normalization, whisper.cpp, and refinement services. It currently supports:
+- file transcription with `apple-speech`, bundled `whisper-base`, or local `whisper.cpp` models
+- Whisper quality preset selection with `fast` / `accurate`
+- transcript refinement with `Raw` / `Enhanced`
+- text or JSON output to stdout or a file path
+
+Examples:
+
+```bash
+oto transcribe --model whisper-base --quality accurate meeting.m4a
+oto transcribe --model base.en --format json --output result.json meeting.wav
+oto refine --backend whisper --mode enhanced --text "hello team i will send the notes tomorrow"
+oto refine --input transcript.txt --format json
+```
+
+Runtime notes:
+- Apple Speech may prompt for Speech Recognition permission the first time the CLI runs.
+- WhisperKit expects bundled model assets in `Oto/Resources/WhisperModels` when running from the repo build output.
+- whisper.cpp transcription requires the selected model to already exist in `~/Library/Application Support/Oto/WhisperCppModels`.
 
 ## XcodeGen Workflow (Important)
 

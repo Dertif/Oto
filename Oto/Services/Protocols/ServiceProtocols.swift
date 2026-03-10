@@ -33,40 +33,6 @@ protocol WhisperTranscribing: AnyObject {
     func transcribe(audioFileURL: URL) async throws -> String
 }
 
-enum WhisperCppModelDownloadState: Equatable {
-    case notDownloaded
-    case downloading(progress: Double)
-    case downloaded
-    case failed(String)
-
-    var progressValue: Double? {
-        guard case let .downloading(progress) = self else {
-            return nil
-        }
-        return progress
-    }
-
-    var label: String {
-        switch self {
-        case .notDownloaded:
-            return "Not downloaded"
-        case let .downloading(progress):
-            return "Downloading \(Int(progress * 100))%"
-        case .downloaded:
-            return "Downloaded"
-        case let .failed(message):
-            return "Failed: \(message)"
-        }
-    }
-}
-
-struct WhisperCppRuntimeSnapshot: Equatable {
-    let selectedModel: WhisperCppModel
-    let modelStatusLabel: String
-    let runtimeStatusLabel: String
-    let downloadState: WhisperCppModelDownloadState
-}
-
 @MainActor
 protocol WhisperCppTranscribing: AnyObject {
     var selectedModel: WhisperCppModel { get }
@@ -119,11 +85,6 @@ protocol FrontmostAppProviding: AnyObject {
     var frontmostApplication: NSRunningApplication? { get }
     func start()
     func stop()
-}
-
-protocol TextRefining: AnyObject {
-    var availabilityLabel: String { get }
-    func refine(request: TextRefinementRequest) async -> TextRefinementResult
 }
 
 @MainActor

@@ -471,6 +471,23 @@ final class WhisperKitTranscriber {
         if let resourceRootURL = Bundle.main.resourceURL {
             candidateRoots.append(resourceRootURL)
         }
+        if let executableURL = Bundle.main.executableURL {
+            let executableFolderURL = executableURL.deletingLastPathComponent()
+            candidateRoots.append(executableFolderURL.appendingPathComponent("WhisperModels", isDirectory: true))
+            candidateRoots.append(executableFolderURL.appendingPathComponent("Resources/WhisperModels", isDirectory: true))
+        }
+
+        let currentDirectoryURL = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath,
+            isDirectory: true
+        )
+        candidateRoots.append(currentDirectoryURL.appendingPathComponent("Oto/Resources/WhisperModels", isDirectory: true))
+
+        let sourceRelativeModelsURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/WhisperModels", isDirectory: true)
+        candidateRoots.append(sourceRelativeModelsURL)
 
         for root in candidateRoots {
             if let found = findBundledModelFolder(in: root) {
