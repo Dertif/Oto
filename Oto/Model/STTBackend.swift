@@ -3,6 +3,7 @@ import Foundation
 enum STTBackend: String, CaseIterable, Identifiable {
     case appleSpeech = "Apple Speech"
     case whisper = "WhisperKit"
+    case whisperCpp = "Whisper.cpp"
 
     var id: String { rawValue }
 
@@ -12,6 +13,8 @@ enum STTBackend: String, CaseIterable, Identifiable {
             return "apple-speech"
         case .whisper:
             return "whisper"
+        case .whisperCpp:
+            return "whisper-cpp"
         }
     }
 }

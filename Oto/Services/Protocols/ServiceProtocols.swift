@@ -33,6 +33,57 @@ protocol WhisperTranscribing: AnyObject {
     func transcribe(audioFileURL: URL) async throws -> String
 }
 
+enum WhisperCppModelDownloadState: Equatable {
+    case notDownloaded
+    case downloading(progress: Double)
+    case downloaded
+    case failed(String)
+
+    var progressValue: Double? {
+        guard case let .downloading(progress) = self else {
+            return nil
+        }
+        return progress
+    }
+
+    var label: String {
+        switch self {
+        case .notDownloaded:
+            return "Not downloaded"
+        case let .downloading(progress):
+            return "Downloading \(Int(progress * 100))%"
+        case .downloaded:
+            return "Downloaded"
+        case let .failed(message):
+            return "Failed: \(message)"
+        }
+    }
+}
+
+struct WhisperCppRuntimeSnapshot: Equatable {
+    let selectedModel: WhisperCppModel
+    let modelStatusLabel: String
+    let runtimeStatusLabel: String
+    let downloadState: WhisperCppModelDownloadState
+}
+
+@MainActor
+protocol WhisperCppTranscribing: AnyObject {
+    var selectedModel: WhisperCppModel { get }
+    var supportedModels: [WhisperCppModel] { get }
+    var runtimeStatusLabel: String { get }
+    var modelStatusLabel: String { get }
+    var downloadState: WhisperCppModelDownloadState { get }
+    var onStateChange: ((WhisperCppRuntimeSnapshot) -> Void)? { get set }
+    func prepareForLaunch() async
+    func refreshState() -> WhisperCppRuntimeSnapshot
+    func selectModel(_ model: WhisperCppModel)
+    func downloadSelectedModel() async
+    func cancelDownload()
+    func deleteSelectedModel() throws
+    func transcribe(audioFileURL: URL) async throws -> String
+}
+
 protocol AudioRecording: AnyObject {
     func startRecording(onAudioLevel: @escaping (Float) -> Void) throws -> URL
     @discardableResult func stopRecording() -> URL?

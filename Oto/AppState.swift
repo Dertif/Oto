@@ -45,6 +45,7 @@ final class AppState: ObservableObject {
     @Published var selectedBackend: STTBackend = .appleSpeech {
         didSet {
             refreshWhisperModelStatus()
+            refreshWhisperCppState()
         }
     }
     @Published var hotkeyMode: HotkeyTriggerMode = .hold {
@@ -64,12 +65,23 @@ final class AppState: ObservableObject {
         }
     }
     @AppStorage("oto.refinementMode") private var refinementModeRawValueStorage = TextRefinementMode.enhanced.rawValue
+    @AppStorage("oto.whisperCppModel") private var whisperCppModelRawValueStorage = WhisperCppModel.baseEn.rawValue
     @Published var refinementMode: TextRefinementMode = .enhanced {
         didSet {
             guard refinementMode != oldValue else {
                 return
             }
             refinementModeRawValueStorage = refinementMode.rawValue
+        }
+    }
+    @Published var whisperCppSelectedModel: WhisperCppModel = .baseEn {
+        didSet {
+            guard whisperCppSelectedModel != oldValue else {
+                return
+            }
+            whisperCppModelRawValueStorage = whisperCppSelectedModel.rawValue
+            whisperCppTranscriber.selectModel(whisperCppSelectedModel)
+            refreshWhisperCppState()
         }
     }
     @AppStorage("oto.allowCommandVFallback") private var allowCommandVFallbackStorage = true
@@ -92,6 +104,10 @@ final class AppState: ObservableObject {
     @Published var hotkeyGuidanceMessage = "If Fn does not trigger, disable conflicting macOS Fn shortcuts and allow Input Monitoring."
     @Published var whisperModelStatusLabel = WhisperModelStatus.missing.rawValue
     @Published var whisperRuntimeStatusLabel = WhisperRuntimeStatus.idle.label
+    @Published var whisperCppModelStatusLabel = "Missing"
+    @Published var whisperCppRuntimeStatusLabel = "Idle"
+    @Published var whisperCppDownloadStatusLabel = WhisperCppModelDownloadState.notDownloaded.label
+    @Published var whisperCppDownloadProgress: Double = 0
     @Published var latencySummary = "Latency P50/P95: no runs yet."
     @Published var refinementLatencySummary = "Refinement P50/P95: no runs yet."
     @Published var lastPrimaryTranscriptURL: URL?
@@ -139,6 +155,7 @@ final class AppState: ObservableObject {
     private let transcriptHistoryStore: TranscriptHistoryProviding
     private let appleTranscriber: SpeechTranscribing
     private let whisperTranscriber: WhisperTranscribing
+    private let whisperCppTranscriber: WhisperCppTranscribing
     private let textInjectionService: TextInjecting
     private let textRefiner: TextRefining
     private let hotkeyService = GlobalHotkeyService()
@@ -154,6 +171,10 @@ final class AppState: ObservableObject {
         let transcriptHistoryStore: TranscriptHistoryProviding = TranscriptHistoryStore(folderURL: transcriptStore.folderURL)
         let appleTranscriber: SpeechTranscribing = AppleSpeechTranscriber()
         let whisperTranscriber: WhisperTranscribing = WhisperKitTranscriber()
+        let persistedWhisperCppModel = WhisperCppModel(
+            rawValue: UserDefaults.standard.string(forKey: "oto.whisperCppModel") ?? ""
+        ) ?? .baseEn
+        let whisperCppTranscriber: WhisperCppTranscribing = WhisperCppTranscriber(selectedModel: persistedWhisperCppModel)
         let textInjectionService: TextInjecting = TextInjectionService()
         let textRefiner: TextRefining = AppleFoundationTextRefiner()
         let audioRecorder: AudioRecording = AudioFileRecorder()
@@ -167,6 +188,7 @@ final class AppState: ObservableObject {
         self.transcriptHistoryStore = transcriptHistoryStore
         self.appleTranscriber = appleTranscriber
         self.whisperTranscriber = whisperTranscriber
+        self.whisperCppTranscriber = whisperCppTranscriber
         self.textInjectionService = textInjectionService
         self.textRefiner = textRefiner
         self.frontmostTracker = frontmostTracker
@@ -177,6 +199,7 @@ final class AppState: ObservableObject {
         self.coordinator = RecordingFlowCoordinator(
             speechTranscriber: appleTranscriber,
             whisperTranscriber: whisperTranscriber,
+            whisperCppTranscriber: whisperCppTranscriber,
             audioRecorder: audioRecorder,
             transcriptStore: transcriptStore,
             textInjector: textInjectionService,
@@ -192,6 +215,11 @@ final class AppState: ObservableObject {
                 self?.whisperRuntimeStatusLabel = status.label
             }
         }
+        whisperCppTranscriber.onStateChange = { [weak self] snapshot in
+            Task { @MainActor in
+                self?.applyWhisperCpp(snapshot: snapshot)
+            }
+        }
 
         let persistedPreset = DictationQualityPreset(rawValue: qualityPresetRawValueStorage) ?? .fast
         qualityPresetRawValueStorage = persistedPreset.rawValue
@@ -200,6 +228,8 @@ final class AppState: ObservableObject {
         let persistedRefinementMode = TextRefinementMode(rawValue: refinementModeRawValueStorage) ?? .enhanced
         refinementModeRawValueStorage = persistedRefinementMode.rawValue
         refinementMode = persistedRefinementMode
+        whisperCppModelRawValueStorage = persistedWhisperCppModel.rawValue
+        whisperCppSelectedModel = persistedWhisperCppModel
         allowCommandVFallback = allowCommandVFallbackStorage
         overlayEnabled = overlayEnabledStorage
         let persistedOverlayPlacement = OverlayPlacement(rawValue: overlayPlacementStorage) ?? .topCenter
@@ -208,6 +238,7 @@ final class AppState: ObservableObject {
 
         refreshPermissionStatus()
         refreshWhisperModelStatus()
+        refreshWhisperCppState()
         hotkeyInterpreter.reset(for: hotkeyMode)
 
         coordinator.onSnapshot = { [weak self] snapshot in
@@ -260,7 +291,9 @@ final class AppState: ObservableObject {
     func prepareWhisperRuntimeForLaunch() {
         Task {
             await whisperTranscriber.prepareForLaunch()
+            await whisperCppTranscriber.prepareForLaunch()
             refreshWhisperRuntimeStatus()
+            refreshWhisperCppState()
         }
     }
 
@@ -327,6 +360,31 @@ final class AppState: ObservableObject {
     func refreshWhisperModelStatus() {
         whisperModelStatusLabel = whisperTranscriber.refreshModelStatus().rawValue
         refreshWhisperRuntimeStatus()
+    }
+
+    func refreshWhisperCppState() {
+        applyWhisperCpp(snapshot: whisperCppTranscriber.refreshState())
+    }
+
+    func downloadWhisperCppSelectedModel() {
+        Task {
+            await whisperCppTranscriber.downloadSelectedModel()
+            refreshWhisperCppState()
+        }
+    }
+
+    func cancelWhisperCppModelDownload() {
+        whisperCppTranscriber.cancelDownload()
+    }
+
+    func deleteWhisperCppSelectedModel() {
+        do {
+            try whisperCppTranscriber.deleteSelectedModel()
+            refreshWhisperCppState()
+        } catch {
+            whisperCppRuntimeStatusLabel = "Error: \(error.localizedDescription)"
+            OtoLogger.log("Failed to delete whisper.cpp model: \(error.localizedDescription)", category: .whisper, level: .error)
+        }
     }
 
     func handleFnDown() {
@@ -398,6 +456,13 @@ final class AppState: ObservableObject {
         whisperRuntimeStatusLabel = whisperTranscriber.runtimeStatusLabel
     }
 
+    private func applyWhisperCpp(snapshot: WhisperCppRuntimeSnapshot) {
+        whisperCppModelStatusLabel = snapshot.modelStatusLabel
+        whisperCppRuntimeStatusLabel = snapshot.runtimeStatusLabel
+        whisperCppDownloadStatusLabel = snapshot.downloadState.label
+        whisperCppDownloadProgress = snapshot.downloadState.progressValue ?? (snapshot.downloadState == .downloaded ? 1 : 0)
+    }
+
     private func apply(snapshot: FlowSnapshot) {
         let projection = AppStateMapper.map(snapshot: snapshot)
 
@@ -431,12 +496,15 @@ final class AppState: ObservableObject {
         flow_state: \(reliabilityState.rawValue)
         backend: \(selectedBackend.rawValue)
         quality_preset: \(qualityPreset.rawValue)
+        whisper_cpp_model: \(whisperCppSelectedModel.rawValue)
         refinement_mode: \(refinementMode.rawValue)
         refinement_availability: \(textRefiner.availabilityLabel)
         output_source: \(lastOutputSourceLabel)
         hotkey_mode: \(hotkeyMode.rawValue)
         permissions: mic=\(microphoneStatusLabel), speech=\(speechStatusLabel), accessibility=\(accessibilityStatusLabel)
         whisper_runtime: \(whisperRuntimeStatusLabel)
+        whisper_cpp_runtime: \(whisperCppRuntimeStatusLabel)
+        whisper_cpp_download: \(whisperCppDownloadStatusLabel)
         latency_summary: \(latencySummary)
         refinement_latency_summary: \(refinementLatencySummary)
         debug_flags: \(debugConfigurationSummary)

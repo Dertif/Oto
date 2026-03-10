@@ -120,9 +120,13 @@ struct AdvancedSettingsView: View {
                     .controlSize(.regular)
                     .disabled(state.isRecording || state.isProcessing || state.selectedBackend != .whisper)
                 } helpText: {
-                    state.selectedBackend == .whisper
-                        ? state.qualityPreset.description
-                        : "Quality preset applies to WhisperKit only."
+                    if state.selectedBackend == .whisper {
+                        return state.qualityPreset.description
+                    }
+                    if state.selectedBackend == .whisperCpp {
+                        return "Whisper.cpp uses the selected ggml model instead of WhisperKit quality presets."
+                    }
+                    return "Quality preset applies to WhisperKit only."
                 }
 
                 InlineControlRow(label: "Refinement") {
@@ -153,8 +157,75 @@ struct AdvancedSettingsView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text(state.whisperRuntimeStatusLabel)
+                        .font(.subheadline)
+                        }
+                    }
+                }
+
+                if state.selectedBackend == .whisperCpp {
+                    Divider()
+
+                    InlineControlRow(label: "Model") {
+                        Picker("Whisper.cpp Model", selection: $state.whisperCppSelectedModel) {
+                            ForEach(WhisperCppModel.allCases) { model in
+                                Text(model.displayName).tag(model)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .controlSize(.regular)
+                        .disabled(state.isRecording || state.isProcessing)
+                    } helpText: {
+                        state.whisperCppSelectedModel.detailText
+                    }
+
+                    HStack(spacing: 18) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Model status")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(state.whisperCppModelStatusLabel)
                                 .font(.subheadline)
                         }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Runtime")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(state.whisperCppRuntimeStatusLabel)
+                                .font(.subheadline)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Download")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(state.whisperCppDownloadStatusLabel)
+                                .font(.subheadline)
+                        }
+                    }
+
+                    if let progress = whisperCppDownloadProgress {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                    }
+
+                    HStack(spacing: 10) {
+                        if whisperCppDownloadProgress != nil {
+                            Button("Cancel Download") {
+                                state.cancelWhisperCppModelDownload()
+                            }
+                            .buttonStyle(.bordered)
+                        } else if state.whisperCppModelStatusLabel != "Available locally" {
+                            Button("Download Model") {
+                                state.downloadWhisperCppSelectedModel()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(state.isRecording || state.isProcessing)
+                        }
+
+                        Button("Delete Model") {
+                            state.deleteWhisperCppSelectedModel()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(state.whisperCppModelStatusLabel != "Available locally")
                     }
                 }
             }
@@ -252,6 +323,13 @@ struct AdvancedSettingsView: View {
                     .disabled(state.isRecording || state.isProcessing)
             }
         }
+    }
+
+    private var whisperCppDownloadProgress: Double? {
+        guard state.whisperCppDownloadStatusLabel.hasPrefix("Downloading") else {
+            return nil
+        }
+        return state.whisperCppDownloadProgress
     }
 
     private var filteredTranscriptEntries: [TranscriptHistoryEntry] {

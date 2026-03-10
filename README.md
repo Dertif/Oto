@@ -4,7 +4,7 @@ Oto is a macOS menu bar app focused on local speech-to-text (STT).
 
 Current implemented scope (Phase 0.1 -> 0.5 capability baseline) includes:
 - Menu bar app entry point
-- Backend switch: Apple Speech / WhisperKit
+- Backend switch: Apple Speech / WhisperKit / Whisper.cpp
 - Microphone + speech + accessibility permission actions
 - Start/stop recording
 - Fn/Globe hotkey control (Hold + Double Tap)
@@ -222,6 +222,26 @@ Debug toggles:
 - `OTO_DEBUG_FLOW_TRACE=1`: emits detailed reducer transition traces.
 - `OTO_DEBUG_UI=1`: shows debug diagnostics panel in the menu.
 - `OTO_DISABLE_INVALID_TRANSITION_ASSERT=1`: disables Debug assertion on invalid reducer transitions.
+
+## Whisper.cpp Models
+
+Whisper.cpp is available as a third on-device backend.
+
+Runtime behavior:
+- Model selection and download live in **Advanced Settings → Dictation**.
+- Supported models in this repo are:
+  - `tiny.en`
+  - `base.en`
+  - `base`
+  - `small.en`
+  - `small`
+- Downloaded ggml models are stored in:
+  - `~/Library/Application Support/Oto/WhisperCppModels`
+- Oto already records 16-bit mono 16 kHz `.wav`, which matches the format expected by `whisper.cpp`, so no extra audio conversion step is required for in-app dictation.
+
+Notes:
+- English-only models (`*.en`) force English decoding.
+- Multilingual models rely on Whisper language detection.
 
 ## Transcripts
 
