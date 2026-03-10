@@ -6,6 +6,7 @@ enum AppleSpeechTranscriberError: LocalizedError {
     case recognizerUnavailable
     case speechPermissionDenied
     case unableToAccessInputNode
+    case emptyTranscription
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +16,8 @@ enum AppleSpeechTranscriberError: LocalizedError {
             return "Speech recognition permission was denied."
         case .unableToAccessInputNode:
             return "Unable to access the microphone input node."
+        case .emptyTranscription:
+            return "Apple Speech returned an empty transcription."
         }
     }
 }
@@ -143,6 +146,57 @@ final class AppleSpeechTranscriber {
         let finalText = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         cleanupRecognition()
         return finalText
+    }
+
+    func transcribe(audioFileURL: URL) async throws -> String {
+        guard let recognizer, recognizer.isAvailable else {
+            throw AppleSpeechTranscriberError.recognizerUnavailable
+        }
+
+        let authorization = await requestSpeechAuthorization()
+        guard authorization == .authorized else {
+            throw AppleSpeechTranscriberError.speechPermissionDenied
+        }
+
+        stop()
+
+        let request = SFSpeechURLRecognitionRequest(url: audioFileURL)
+        request.shouldReportPartialResults = false
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var task: SFSpeechRecognitionTask?
+            var didResume = false
+
+            func resume(with result: Result<String, Error>) {
+                guard !didResume else {
+                    return
+                }
+
+                didResume = true
+                task?.cancel()
+                task = nil
+                continuation.resume(with: result)
+            }
+
+            task = recognizer.recognitionTask(with: request) { result, error in
+                if let error {
+                    resume(with: .failure(error))
+                    return
+                }
+
+                guard let result, result.isFinal else {
+                    return
+                }
+
+                let text = result.bestTranscription.formattedString
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty {
+                    resume(with: .failure(AppleSpeechTranscriberError.emptyTranscription))
+                } else {
+                    resume(with: .success(text))
+                }
+            }
+        }
     }
 
     private func endAudioInput() {

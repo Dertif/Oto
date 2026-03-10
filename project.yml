@@ -19,6 +19,7 @@ targets:
     sources:
       - path: Oto
         excludes:
+          - CLI/Main.swift
           - Resources/WhisperModels/**/.cache/**
           - Resources/WhisperModels/openai/whisper-base/config.json
           - Resources/WhisperModels/openai/whisper-base/tokenizer_config.json
@@ -46,6 +47,49 @@ targets:
     scheme:
       testTargets:
         - OtoTests
+  OtoCLI:
+    type: tool
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Oto/CLI
+      - path: Oto/Model/STTBackend.swift
+      - path: Oto/Model/DictationQualityPreset.swift
+      - path: Oto/Model/TextRefinementMode.swift
+      - path: Oto/Model/TextRefinementModels.swift
+      - path: Oto/Model/WhisperCppModel.swift
+      - path: Oto/Model/WhisperCppRuntimeModels.swift
+      - path: Oto/Services/OtoLogger.swift
+      - path: Oto/Services/TextRefining.swift
+      - path: Oto/Services/TranscriptNormalizer.swift
+      - path: Oto/Services/TextRefinementPolicy.swift
+      - path: Oto/Services/AppleFoundationTextRefiner.swift
+      - path: Oto/Services/AppleSpeechTranscriber.swift
+      - path: Oto/Services/WhisperKitTranscriber.swift
+      - path: Oto/Services/WhisperCppTranscriber.swift
+      - path: Oto/Services/WaveFileDecoder.swift
+      - path: Oto/Services/AudioFileTranscriptionService.swift
+      - path: Oto/Resources/WhisperModels
+        excludes:
+          - "**/.cache/**"
+          - openai/whisper-base/config.json
+          - openai/whisper-base/tokenizer_config.json
+    dependencies:
+      - package: WhisperKit
+        product: WhisperKit
+      - package: WhisperSPM
+        product: whisper
+    settings:
+      base:
+        PRODUCT_NAME: oto
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Oto CLI
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: Oto CLI needs Speech Recognition access to transcribe local audio files.
+        SWIFT_VERSION: 5.0
+        CODE_SIGNING_ALLOWED: NO
+        "ARCHS[sdk=macosx*]": arm64
+        "EXCLUDED_ARCHS[sdk=macosx*]": x86_64
+    scheme: {}
   OtoTests:
     type: bundle.unit-test
     platform: macOS
