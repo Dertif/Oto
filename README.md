@@ -66,6 +66,8 @@ xcodegen --version
 
 ## First-Time Setup
 
+New to Oto? Start with the user guide in [`docs/install-and-use.md`](docs/install-and-use.md) for installation, permissions, dictation, backends, refinement, transcript files, and troubleshooting.
+
 1. Generate the Xcode project:
 
 ```bash
